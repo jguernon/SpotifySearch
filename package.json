@@ -8,14 +8,20 @@
     "dev": "node server.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "mysql2": "^3.6.5",
-    "@google/generative-ai": "^0.1.3",
+    "@google/generative-ai": "^0.24.1",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "mysql2": "^3.6.5",
     "puppeteer": "^21.6.1"
   },
-  "keywords": ["spotify", "podcast", "transcript", "gemini", "ai"],
+  "keywords": [
+    "spotify",
+    "podcast",
+    "transcript",
+    "gemini",
+    "ai"
+  ],
   "author": "",
   "license": "ISC"
 }
