@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log
+.env
+.env.local
+temp/*
+!temp/.gitkeep
+*.log
+.git
+.gitignore
+README.md
+*.txt
+sync_config.jsonc
+.DS_Store

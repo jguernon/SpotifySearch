@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Credentials - IMPORTANT: Keep these private!
+ftp_credentials.txt
+db_credentials.txt
+api_credentials.txt
+.env
+.env.local
+
+# Sync config (contains FTP password)
+sync_config.jsonc
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temp audio files
+temp/*.mp3
+temp/*.wav
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Claude plans
+.claude/
