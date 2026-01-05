@@ -10,7 +10,7 @@ const { exec } = require('child_process');
 const util = require('util');
 const execPromise = util.promisify(exec);
 const pool = require('./db');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenerativeAI, GoogleAIFileManager } = require('@google/generative-ai/server');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -19,6 +19,8 @@ const PORT = process.env.PORT || 3000;
 if (!process.env.GEMINI_API_KEY) {
   console.error('WARNING: GEMINI_API_KEY environment variable is not set');
 }
+
+const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
@@ -69,23 +71,20 @@ function extractSpotifyId(url) {
 async function downloadFromYoutube(youtubeUrl, outputPath) {
   console.log('Downloading from YouTube with yt-dlp...');
 
-  // Remove extension - yt-dlp adds it
   const outputTemplate = outputPath.replace(/\.[^/.]+$/, '');
 
   try {
-    // Download audio only, convert to mp3, limit to 20 minutes for file size
-    const cmd = `yt-dlp -x --audio-format mp3 --audio-quality 5 -o "${outputTemplate}.%(ext)s" --no-playlist "${youtubeUrl}"`;
+    // Download audio only, convert to mp3, lower quality for smaller file size
+    const cmd = `yt-dlp -x --audio-format mp3 --audio-quality 9 -o "${outputTemplate}.%(ext)s" --no-playlist "${youtubeUrl}"`;
     console.log('Running:', cmd);
 
-    await execPromise(cmd, { timeout: 600000 }); // 10 min timeout
+    await execPromise(cmd, { timeout: 900000 }); // 15 min timeout
 
-    // Find the downloaded file
     const expectedPath = `${outputTemplate}.mp3`;
     if (fs.existsSync(expectedPath)) {
       return expectedPath;
     }
 
-    // Check for other formats
     const dir = path.dirname(outputPath);
     const base = path.basename(outputTemplate);
     const files = fs.readdirSync(dir).filter(f => f.startsWith(base));
@@ -250,10 +249,41 @@ async function downloadAudioFromUrl(audioUrl, outputPath) {
   });
 }
 
-// Convert audio to base64 for Gemini
-function audioToBase64(filePath) {
-  const audioBuffer = fs.readFileSync(filePath);
-  return audioBuffer.toString('base64');
+// Upload file to Gemini and wait for processing
+async function uploadToGemini(filePath, mimeType) {
+  console.log('Uploading file to Gemini File API...');
+
+  const uploadResult = await fileManager.uploadFile(filePath, {
+    mimeType: mimeType,
+    displayName: path.basename(filePath),
+  });
+
+  console.log(`Uploaded file: ${uploadResult.file.name}`);
+
+  // Wait for file to be processed
+  let file = uploadResult.file;
+  while (file.state === 'PROCESSING') {
+    console.log('Waiting for file processing...');
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    file = await fileManager.getFile(file.name);
+  }
+
+  if (file.state === 'FAILED') {
+    throw new Error('File processing failed');
+  }
+
+  console.log('File ready for use');
+  return file;
+}
+
+// Delete file from Gemini after use
+async function deleteFromGemini(fileName) {
+  try {
+    await fileManager.deleteFile(fileName);
+    console.log('Deleted file from Gemini:', fileName);
+  } catch (error) {
+    console.error('Failed to delete file from Gemini:', error.message);
+  }
 }
 
 // Check if URL already exists
@@ -283,6 +313,7 @@ app.get('/api/check', async (req, res) => {
 // Process podcast - supports YouTube and Spotify URLs
 app.post('/api/process', async (req, res) => {
   let audioPath = null;
+  let geminiFile = null;
 
   try {
     const { url } = req.body;
@@ -299,7 +330,6 @@ app.post('/api/process', async (req, res) => {
       });
     }
 
-    // Get unique ID based on URL type
     const episodeId = urlType === 'youtube'
       ? extractYoutubeId(url)
       : extractSpotifyId(url);
@@ -326,7 +356,6 @@ app.post('/api/process', async (req, res) => {
 
     // Process based on URL type
     if (urlType === 'youtube') {
-      // Direct YouTube download
       console.log('Processing YouTube URL...');
       const ytInfo = await getYoutubeInfo(url);
       metadata = {
@@ -337,7 +366,6 @@ app.post('/api/process', async (req, res) => {
       await downloadFromYoutube(url, audioPath);
 
     } else if (urlType === 'spotify') {
-      // Spotify: Search on YouTube first, then Listen Notes as fallback
       console.log('Processing Spotify URL...');
 
       const spotifyInfo = await getSpotifyEpisodeInfo(url).catch(() => ({
@@ -347,7 +375,6 @@ app.post('/api/process', async (req, res) => {
 
       console.log('Spotify episode title:', spotifyInfo.title);
 
-      // Try YouTube search first (works for Joe Rogan and most podcasts)
       let downloadedFromYoutube = false;
       try {
         const ytResult = await searchYoutubeForPodcast(spotifyInfo.title);
@@ -365,7 +392,6 @@ app.post('/api/process', async (req, res) => {
         console.log('YouTube search failed, trying Listen Notes...', ytError.message);
       }
 
-      // Fallback to Listen Notes if YouTube didn't work
       if (!downloadedFromYoutube && LISTEN_NOTES_API_KEY) {
         try {
           const lnResult = await searchListenNotes(spotifyInfo.title);
@@ -394,7 +420,7 @@ app.post('/api/process', async (req, res) => {
       }
     }
 
-    // Verify file exists and check size
+    // Verify file exists
     if (!fs.existsSync(audioPath)) {
       return res.status(500).json({ error: 'Failed to download audio file' });
     }
@@ -403,18 +429,20 @@ app.post('/api/process', async (req, res) => {
     const fileSizeMB = stats.size / (1024 * 1024);
     console.log(`Audio file size: ${fileSizeMB.toFixed(2)} MB`);
 
-    if (fileSizeMB > 20) {
+    // Check max size (Gemini File API limit is 2GB, but we limit to 100MB for practical reasons)
+    if (fileSizeMB > 100) {
       fs.unlinkSync(audioPath);
       return res.status(413).json({
-        error: 'Audio file is too large for processing. Maximum size is 20MB.',
-        size: `${fileSizeMB.toFixed(2)} MB`,
-        suggestion: 'Try a shorter podcast episode or clip.'
+        error: 'Audio file is too large for processing. Maximum size is 100MB.',
+        size: `${fileSizeMB.toFixed(2)} MB`
       });
     }
 
-    // Send to Gemini for transcription
-    const audioBase64 = audioToBase64(audioPath);
-    console.log('Sending audio to Gemini for transcription...');
+    // Upload to Gemini File API (works for files > 20MB)
+    console.log('Uploading to Gemini File API...');
+    geminiFile = await uploadToGemini(audioPath, 'audio/mp3');
+
+    console.log('Sending to Gemini for transcription...');
 
     const prompt = `Listen to this podcast episode and provide the following in JSON format:
 {
@@ -430,11 +458,11 @@ Please transcribe the entire audio and analyze its content. If you cannot determ
     const result = await model.generateContent([
       prompt,
       {
-        inlineData: {
-          mimeType: 'audio/mp3',
-          data: audioBase64
-        }
-      }
+        fileData: {
+          fileUri: geminiFile.uri,
+          mimeType: geminiFile.mimeType,
+        },
+      },
     ]);
 
     const response = result.response;
@@ -484,9 +512,12 @@ Please transcribe the entire audio and analyze its content. If you cannot determ
       ]
     );
 
-    // Clean up audio file
+    // Clean up
     if (audioPath && fs.existsSync(audioPath)) {
       fs.unlinkSync(audioPath);
+    }
+    if (geminiFile) {
+      await deleteFromGemini(geminiFile.name);
     }
 
     res.json({
@@ -503,8 +534,12 @@ Please transcribe the entire audio and analyze its content. If you cannot determ
   } catch (error) {
     console.error('Process error:', error);
 
+    // Clean up on error
     if (audioPath && fs.existsSync(audioPath)) {
       fs.unlinkSync(audioPath);
+    }
+    if (geminiFile) {
+      await deleteFromGemini(geminiFile.name);
     }
 
     res.status(500).json({ error: 'Failed to process podcast: ' + error.message });
@@ -546,4 +581,5 @@ app.get('/api/podcasts/:id', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log('Supported URL types: YouTube, Spotify');
+  console.log('Max audio file size: 100MB (using Gemini File API)');
 });
