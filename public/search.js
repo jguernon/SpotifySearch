@@ -9,9 +9,17 @@ const resultsCount = document.getElementById('resultsCount');
 
 const API_BASE = window.location.origin;
 
+// Footer elements
+const totalEpisodes = document.getElementById('totalEpisodes');
+const indexedList = document.getElementById('indexedList');
+const expandBtn = document.getElementById('expandBtn');
+let indexedExpanded = false;
+let indexedStatsLoaded = false;
+
 // Load data on page load
 document.addEventListener('DOMContentLoaded', () => {
   loadPopularTags();
+  loadIndexedStats();
 
   // Check for search query in URL
   const params = new URLSearchParams(window.location.search);
@@ -213,3 +221,44 @@ window.addEventListener('popstate', () => {
     clearSearch();
   }
 });
+
+// ============================================
+// INDEXED STATS (Footer)
+// ============================================
+
+// Load indexed stats
+async function loadIndexedStats() {
+  try {
+    const response = await fetch(`${API_BASE}/api/indexed-stats`);
+    const stats = await response.json();
+
+    totalEpisodes.textContent = stats.total_episodes.toLocaleString();
+    indexedStatsLoaded = true;
+
+    // Pre-render the list
+    if (stats.channels.length === 0) {
+      indexedList.innerHTML = '<p class="empty-state">No channels indexed yet</p>';
+    } else {
+      indexedList.innerHTML = stats.channels.map(channel => {
+        const lastScan = new Date(channel.last_scan).toLocaleDateString();
+        return `
+          <div class="indexed-channel">
+            <span class="channel-name">${escapeHtml(channel.name)}</span>
+            <span class="channel-stats">${channel.episodes}/${channel.total}</span>
+            <span class="channel-date">${lastScan}</span>
+          </div>
+        `;
+      }).join('');
+    }
+  } catch (error) {
+    console.error('Failed to load indexed stats:', error);
+    totalEpisodes.textContent = '?';
+  }
+}
+
+// Toggle indexed list visibility
+function toggleIndexedList() {
+  indexedExpanded = !indexedExpanded;
+  indexedList.style.display = indexedExpanded ? 'block' : 'none';
+  expandBtn.textContent = indexedExpanded ? '−' : '+';
+}

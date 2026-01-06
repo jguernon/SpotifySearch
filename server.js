@@ -1150,6 +1150,49 @@ async function backfillThumbnailsAsync(jobId) {
   }
 }
 
+// Get indexed stats for public footer
+app.get('/api/indexed-stats', async (req, res) => {
+  try {
+    // Get total episodes count
+    const [totalCount] = await pool.execute('SELECT COUNT(*) as total FROM podcasts');
+
+    // Get channels with their episode counts and last processed date
+    const [channels] = await pool.execute(`
+      SELECT
+        podcast_name as name,
+        COUNT(*) as episodes,
+        MAX(processed_at) as last_scan
+      FROM podcasts
+      GROUP BY podcast_name
+      ORDER BY episodes DESC
+    `);
+
+    // Get total available from channels table if exists
+    const [channelStats] = await pool.execute(`
+      SELECT channel_name, total_videos
+      FROM channels
+      WHERE channel_name IS NOT NULL
+    `);
+
+    const statsMap = new Map(channelStats.map(c => [c.channel_name, c.total_videos]));
+
+    const channelsWithTotal = channels.map(ch => ({
+      name: ch.name,
+      episodes: ch.episodes,
+      total: statsMap.get(ch.name) || ch.episodes,
+      last_scan: ch.last_scan
+    }));
+
+    res.json({
+      total_episodes: totalCount[0].total || 0,
+      channels: channelsWithTotal
+    });
+  } catch (error) {
+    console.error('Indexed stats error:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // Update podcasts endpoint to support pagination
 app.get('/api/podcasts', async (req, res) => {
   try {

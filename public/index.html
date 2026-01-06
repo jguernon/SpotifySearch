@@ -52,7 +52,17 @@
     </main>
 
     <footer>
-      <p>Jonathan Guernon 2025 - Powered by Google Gemini AI</p>
+      <!-- Indexed Podcasts Stats -->
+      <div class="indexed-stats">
+        <div class="indexed-header" onclick="toggleIndexedList()">
+          <span class="indexed-title">Indexed podcasts, total: <span id="totalEpisodes">-</span></span>
+          <button class="expand-btn" id="expandBtn">+</button>
+        </div>
+        <div id="indexedList" class="indexed-list" style="display: none;">
+          <p class="loading-text">Loading...</p>
+        </div>
+      </div>
+      <p class="footer-credit">Jonathan Guernon 2025 - Powered by Google Gemini AI</p>
     </footer>
   </div>
 
