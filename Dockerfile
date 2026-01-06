@@ -7,12 +7,12 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-venv \
     ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
-# Install yt-dlp
-RUN python3 -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --no-cache-dir yt-dlp
+# Install yt-dlp globally
+RUN python3 -m pip install --break-system-packages yt-dlp
 
 # Set working directory
 WORKDIR /app
@@ -21,7 +21,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install Node.js dependencies
-RUN npm ci --only=production
+RUN npm ci --omit=dev
 
 # Copy application code
 COPY . .
