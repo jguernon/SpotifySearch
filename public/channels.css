@@ -233,6 +233,12 @@
   color: #1db954;
 }
 
+.ai-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .primary-btn {
   padding: 14px 28px;
   background: #1db954;
@@ -254,6 +260,28 @@
   background: #535353;
   cursor: not-allowed;
   transform: none;
+}
+
+.secondary-btn {
+  padding: 14px 28px;
+  background: transparent;
+  color: #1db954;
+  border: 1px solid #1db954;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.secondary-btn:hover {
+  background: rgba(29, 185, 84, 0.2);
+}
+
+.secondary-btn:disabled {
+  border-color: #535353;
+  color: #535353;
+  cursor: not-allowed;
 }
 
 /* Success Message */

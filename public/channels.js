@@ -13,6 +13,8 @@ const errorMessage = document.getElementById('errorMessage');
 const errorText = document.getElementById('errorText');
 const successMessage = document.getElementById('successMessage');
 const successText = document.getElementById('successText');
+const backfillThumbnailsBtn = document.getElementById('backfillThumbnailsBtn');
+const missingThumbnails = document.getElementById('missingThumbnails');
 
 // Keyword management elements
 const keywordsList = document.getElementById('keywordsList');
@@ -134,6 +136,9 @@ async function addToBlacklist() {
 // Process AI button
 processAiBtn.addEventListener('click', startAiProcessing);
 
+// Backfill thumbnails button
+backfillThumbnailsBtn.addEventListener('click', startThumbnailBackfill);
+
 // Load channels list
 async function loadChannels() {
   channelsList.innerHTML = '<p class="loading-text">Loading channels...</p>';
@@ -222,6 +227,12 @@ async function loadAiStatus() {
       : 'Never';
     totalKeywords.textContent = status.total_keywords || 0;
     videosAnalyzed.textContent = status.videos_analyzed || 0;
+    missingThumbnails.textContent = status.missing_thumbnails || 0;
+
+    // Update backfill button state
+    if (status.missing_thumbnails === 0) {
+      backfillThumbnailsBtn.disabled = true;
+    }
   } catch (error) {
     console.error('Failed to load AI status:', error);
   }
@@ -254,6 +265,83 @@ async function startAiProcessing() {
     showError('AI processing failed: ' + error.message);
   } finally {
     setAiLoading(false);
+  }
+}
+
+// Start thumbnail backfill
+async function startThumbnailBackfill() {
+  hideError();
+  hideSuccess();
+  setThumbnailLoading(true);
+  showAiProgress();
+  updateAiProgress(0, 'Starting thumbnail backfill...');
+
+  try {
+    const response = await fetch(`${API_BASE}/api/backfill-thumbnails`, {
+      method: 'POST'
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to start thumbnail backfill');
+    }
+
+    // Poll for status
+    await pollJobStatus(data.jobId, 'thumbnails');
+
+  } catch (error) {
+    hideAiProgress();
+    showError('Thumbnail backfill failed: ' + error.message);
+  } finally {
+    setThumbnailLoading(false);
+  }
+}
+
+// Set thumbnail button loading state
+function setThumbnailLoading(loading) {
+  backfillThumbnailsBtn.disabled = loading;
+  backfillThumbnailsBtn.querySelector('.btn-text').style.display = loading ? 'none' : 'inline';
+  backfillThumbnailsBtn.querySelector('.btn-loading').style.display = loading ? 'inline' : 'none';
+}
+
+// Poll job status (works for both AI and thumbnail jobs)
+async function pollJobStatus(jobId, type) {
+  let completed = false;
+
+  while (!completed) {
+    await sleep(2000);
+
+    try {
+      const response = await fetch(`${API_BASE}/api/ai-status/${jobId}`);
+      const status = await response.json();
+
+      if (status.status === 'error') {
+        throw new Error(status.error || `${type} processing failed`);
+      }
+
+      if (status.status === 'processing') {
+        const percent = status.total > 0
+          ? Math.round((status.processed / status.total) * 100)
+          : 0;
+        const label = type === 'thumbnails' ? 'Fetching thumbnails' : 'Extracting keywords';
+        updateAiProgress(percent, `Processing ${status.processed}/${status.total}: ${label}...`);
+      } else if (status.status === 'completed') {
+        completed = true;
+        updateAiProgress(100, 'Complete!');
+        await sleep(500);
+        hideAiProgress();
+        if (type === 'thumbnails') {
+          showSuccess(`Thumbnail backfill complete! Updated ${status.processed} videos.`);
+        } else {
+          showSuccess(`AI processing complete! Extracted ${status.keywords_count} keywords from ${status.processed} videos.`);
+        }
+        loadAiStatus();
+        loadChannels();
+      }
+    } catch (error) {
+      throw error;
+    }
   }
 }
 

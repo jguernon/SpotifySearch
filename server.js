@@ -387,17 +387,29 @@ async function processChannelAsync(jobId, channelUrl, maxVideos) {
 
   try {
     job.status = 'fetching_videos';
-    const videos = await getChannelVideos(channelUrl, maxVideos);
-    job.total = videos.length;
+    const allVideos = await getChannelVideos(channelUrl, maxVideos);
+
+    // Get already processed video URLs to skip them
+    const [processed] = await pool.execute('SELECT spotify_url FROM podcasts');
+    const processedUrls = new Set(processed.map(p => p.spotify_url));
+
+    // Filter out already processed videos
+    const newVideos = allVideos.filter(v => !processedUrls.has(v.url));
+    const skippedCount = allVideos.length - newVideos.length;
+
+    job.total = newVideos.length;
+    job.skipped = skippedCount;
     job.status = 'processing';
 
-    for (let i = 0; i < videos.length; i++) {
-      const video = videos[i];
+    console.log(`[${jobId}] Found ${allVideos.length} videos, ${skippedCount} already processed, ${newVideos.length} new to process`);
+
+    for (let i = 0; i < newVideos.length; i++) {
+      const video = newVideos[i];
       job.currentVideo = video.title;
 
       try {
-        console.log(`[${jobId}] Processing ${i + 1}/${videos.length}: ${video.title}`);
-        const result = await processVideo(video.url, video.id);
+        console.log(`[${jobId}] Processing ${i + 1}/${newVideos.length}: ${video.title}`);
+        const result = await processVideo(video.url, video.id, false); // skipExisting=false since we already filtered
 
         if (result.skipped) {
           job.skipped++;
@@ -673,11 +685,13 @@ app.get('/api/ai-status', async (req, res) => {
     const [keywordCount] = await pool.execute('SELECT COUNT(DISTINCT keyword) as count FROM keywords');
     const [videoCount] = await pool.execute('SELECT COUNT(*) as count FROM podcasts WHERE keywords IS NOT NULL AND keywords != ""');
     const [lastProcessed] = await pool.execute('SELECT MAX(ai_processed_at) as last FROM podcasts WHERE ai_processed_at IS NOT NULL');
+    const [missingThumbnails] = await pool.execute('SELECT COUNT(*) as count FROM podcasts WHERE thumbnail_url IS NULL OR thumbnail_url = ""');
 
     res.json({
       total_keywords: keywordCount[0].count || 0,
       videos_analyzed: videoCount[0].count || 0,
-      last_processed: lastProcessed[0].last
+      last_processed: lastProcessed[0].last,
+      missing_thumbnails: missingThumbnails[0].count || 0
     });
   } catch (error) {
     console.error('AI status error:', error);
@@ -1057,6 +1071,85 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
+// ============================================
+// THUMBNAIL BACKFILL ENDPOINT
+// ============================================
+
+// Backfill thumbnails for existing videos
+app.post('/api/backfill-thumbnails', async (req, res) => {
+  try {
+    const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+
+    aiJobs.set(jobId, {
+      status: 'starting',
+      total: 0,
+      processed: 0,
+      type: 'thumbnails'
+    });
+
+    res.json({ success: true, jobId });
+
+    // Process in background
+    backfillThumbnailsAsync(jobId);
+
+  } catch (error) {
+    console.error('Backfill thumbnails error:', error);
+    res.status(500).json({ error: 'Failed to start thumbnail backfill' });
+  }
+});
+
+// Background thumbnail backfill
+async function backfillThumbnailsAsync(jobId) {
+  const job = aiJobs.get(jobId);
+
+  try {
+    // Get videos without thumbnails
+    const [videos] = await pool.execute(`
+      SELECT id, spotify_url, episode_title
+      FROM podcasts
+      WHERE thumbnail_url IS NULL OR thumbnail_url = ''
+    `);
+
+    job.total = videos.length;
+    job.status = 'processing';
+
+    console.log(`[Thumbnails-${jobId}] Backfilling ${videos.length} videos`);
+
+    for (let i = 0; i < videos.length; i++) {
+      const video = videos[i];
+
+      try {
+        const ytInfo = await getYoutubeInfo(video.spotify_url);
+
+        if (ytInfo.thumbnail) {
+          await pool.execute(
+            'UPDATE podcasts SET thumbnail_url = ? WHERE id = ?',
+            [ytInfo.thumbnail, video.id]
+          );
+          console.log(`[Thumbnails-${jobId}] Updated ${i + 1}/${videos.length}: ${video.episode_title}`);
+        }
+
+        job.processed++;
+
+        // Rate limiting
+        await new Promise(r => setTimeout(r, 300));
+
+      } catch (error) {
+        console.error(`[Thumbnails-${jobId}] Error on video ${video.id}:`, error.message);
+        job.processed++;
+      }
+    }
+
+    job.status = 'completed';
+    console.log(`[Thumbnails-${jobId}] Completed! ${job.processed} thumbnails updated`);
+
+  } catch (error) {
+    console.error(`[Thumbnails-${jobId}] Error:`, error);
+    job.status = 'error';
+    job.error = error.message;
+  }
+}
+
 // Update podcasts endpoint to support pagination
 app.get('/api/podcasts', async (req, res) => {
   try {
@@ -1064,7 +1157,7 @@ app.get('/api/podcasts', async (req, res) => {
     const offset = parseInt(req.query.offset) || 0;
 
     const [rows] = await pool.execute(`
-      SELECT id, spotify_url, podcast_name, episode_title, summary, best_part, keywords, processed_at
+      SELECT id, spotify_url, podcast_name, episode_title, summary, best_part, keywords, processed_at, thumbnail_url
       FROM podcasts
       ORDER BY processed_at DESC
       LIMIT ? OFFSET ?
