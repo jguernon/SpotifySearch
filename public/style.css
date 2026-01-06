@@ -33,6 +33,32 @@ header h1 {
   font-size: 1.1rem;
 }
 
+/* Navigation */
+.nav-links {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+}
+
+.nav-links a {
+  color: #b3b3b3;
+  text-decoration: none;
+  padding: 8px 16px;
+  border-radius: 20px;
+  transition: all 0.3s;
+}
+
+.nav-links a:hover {
+  color: #1db954;
+  background: rgba(29, 185, 84, 0.1);
+}
+
+.nav-links a.active {
+  color: #1db954;
+  background: rgba(29, 185, 84, 0.2);
+}
+
 /* Form Styles */
 form {
   background: rgba(255, 255, 255, 0.05);

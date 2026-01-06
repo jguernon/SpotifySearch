@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Channel Management - YouTube Transcriber</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="channels.css">
+</head>
+<body>
+  <div class="container wide">
+    <header>
+      <h1>Channel Management</h1>
+      <p class="subtitle">Manage YouTube channels and AI processing</p>
+      <nav class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="channels.html" class="active">Channels</a>
+        <a href="search.html">Search</a>
+      </nav>
+    </header>
+
+    <main>
+      <!-- Channel List -->
+      <section class="channels-section">
+        <div class="section-header">
+          <h2>YouTube Channels</h2>
+          <button id="refreshBtn" class="icon-btn" title="Refresh">↻</button>
+        </div>
+
+        <div id="channelsList" class="channels-list">
+          <p class="loading-text">Loading channels...</p>
+        </div>
+      </section>
+
+      <!-- AI Processing Status -->
+      <section class="ai-section">
+        <h2>AI Keyword Processing</h2>
+        <div id="aiStatus" class="ai-status-card">
+          <div class="ai-info">
+            <p><strong>Last processed:</strong> <span id="lastProcessed">Never</span></p>
+            <p><strong>Total keywords:</strong> <span id="totalKeywords">0</span></p>
+            <p><strong>Videos analyzed:</strong> <span id="videosAnalyzed">0</span></p>
+          </div>
+          <button id="processAiBtn" class="primary-btn">
+            <span class="btn-text">Process All with AI</span>
+            <span class="btn-loading" style="display: none;">Processing...</span>
+          </button>
+        </div>
+
+        <!-- AI Progress -->
+        <div id="aiProgressSection" class="progress-section" style="display: none;">
+          <div class="progress-bar">
+            <div class="progress-fill" id="aiProgressFill"></div>
+          </div>
+          <p class="progress-text" id="aiProgressText">Initializing...</p>
+          <p class="progress-percent" id="aiProgressPercent">0%</p>
+        </div>
+      </section>
+
+      <!-- Error Message -->
+      <div id="errorMessage" class="error-message" style="display: none;">
+        <span class="error-icon">!</span>
+        <p id="errorText"></p>
+      </div>
+
+      <!-- Success Message -->
+      <div id="successMessage" class="success-message" style="display: none;">
+        <span class="success-icon">✓</span>
+        <p id="successText"></p>
+      </div>
+    </main>
+
+    <footer>
+      <p>Powered by Google Gemini AI</p>
+    </footer>
+  </div>
+
+  <script src="channels.js"></script>
+</body>
+</html>

@@ -35,6 +35,9 @@ if (!fs.existsSync(TEMP_DIR)) {
 // Track channel processing jobs
 const channelJobs = new Map();
 
+// Track AI processing jobs
+const aiJobs = new Map();
+
 // Detect URL type
 function detectUrlType(url) {
   if (url.includes('/watch?v=') || url.includes('youtu.be/')) {
@@ -444,19 +447,6 @@ app.get('/api/channel-status/:jobId', (req, res) => {
   });
 });
 
-// Get all processed podcasts
-app.get('/api/podcasts', async (req, res) => {
-  try {
-    const [rows] = await pool.execute(
-      'SELECT id, spotify_url, podcast_name, episode_title, summary, best_part, processed_at FROM podcasts ORDER BY processed_at DESC'
-    );
-    res.json(rows);
-  } catch (error) {
-    console.error('List error:', error);
-    res.status(500).json({ error: 'Database error' });
-  }
-});
-
 // Get single podcast by ID
 app.get('/api/podcasts/:id', async (req, res) => {
   try {
@@ -479,6 +469,426 @@ app.get('/api/podcasts/:id', async (req, res) => {
 // Health check endpoint for Railway
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// ============================================
+// CHANNEL MANAGEMENT ENDPOINTS
+// ============================================
+
+// Get all channels with stats
+app.get('/api/channels', async (req, res) => {
+  try {
+    const [rows] = await pool.execute(`
+      SELECT
+        podcast_name as channel_name,
+        MIN(spotify_url) as channel_url,
+        COUNT(*) as videos_processed,
+        MAX(processed_at) as last_processed,
+        MAX(ai_processed_at) as ai_processed_at
+      FROM podcasts
+      GROUP BY podcast_name
+      ORDER BY last_processed DESC
+    `);
+
+    // For each channel, we need to get total available videos
+    // This is stored in the channels table or we estimate from what we have
+    const [channelStats] = await pool.execute(`
+      SELECT channel_name, total_videos, channel_url
+      FROM channels
+      WHERE channel_name IS NOT NULL
+    `);
+
+    const statsMap = new Map(channelStats.map(c => [c.channel_name, c]));
+
+    const channels = rows.map(row => {
+      const stats = statsMap.get(row.channel_name);
+      return {
+        channel_name: row.channel_name,
+        channel_url: stats?.channel_url || extractChannelUrl(row.channel_url),
+        videos_processed: row.videos_processed,
+        total_available: stats?.total_videos || row.videos_processed,
+        last_processed: row.last_processed,
+        ai_processed_at: row.ai_processed_at
+      };
+    });
+
+    res.json(channels);
+  } catch (error) {
+    console.error('Channels error:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Extract channel URL from video URL
+function extractChannelUrl(videoUrl) {
+  if (!videoUrl) return null;
+  // We can't reliably extract channel URL from video URL without API call
+  return null;
+}
+
+// Refresh channel video count
+app.post('/api/refresh-channel-count', async (req, res) => {
+  try {
+    const { channelName, channelUrl } = req.body;
+
+    if (!channelUrl) {
+      return res.status(400).json({ error: 'Channel URL is required' });
+    }
+
+    // Get total videos from channel
+    const { stdout } = await execPromise(
+      `yt-dlp --flat-playlist --dump-json "${channelUrl}" 2>/dev/null | wc -l`,
+      { timeout: 120000 }
+    );
+
+    const totalVideos = parseInt(stdout.trim()) || 0;
+
+    // Update or insert into channels table
+    await pool.execute(`
+      INSERT INTO channels (channel_name, channel_url, total_videos, updated_at)
+      VALUES (?, ?, ?, NOW())
+      ON DUPLICATE KEY UPDATE
+        total_videos = VALUES(total_videos),
+        channel_url = VALUES(channel_url),
+        updated_at = NOW()
+    `, [channelName, channelUrl, totalVideos]);
+
+    res.json({ success: true, totalVideos });
+  } catch (error) {
+    console.error('Refresh count error:', error);
+    res.status(500).json({ error: 'Failed to refresh count: ' + error.message });
+  }
+});
+
+// Process missing videos for a channel
+app.post('/api/process-missing', async (req, res) => {
+  try {
+    const { channelName, channelUrl } = req.body;
+
+    if (!channelUrl) {
+      return res.status(400).json({ error: 'Channel URL is required' });
+    }
+
+    // Get already processed video IDs for this channel
+    const [processed] = await pool.execute(
+      'SELECT spotify_url FROM podcasts WHERE podcast_name = ?',
+      [channelName]
+    );
+    const processedIds = new Set(processed.map(p => extractYoutubeId(p.spotify_url)));
+
+    // Start background job
+    const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+
+    channelJobs.set(jobId, {
+      status: 'starting',
+      url: channelUrl,
+      total: 0,
+      processed: 0,
+      skipped: 0,
+      failed: 0,
+      results: []
+    });
+
+    res.json({ success: true, jobId });
+
+    // Process in background - only missing videos
+    processMissingVideosAsync(jobId, channelUrl, processedIds);
+
+  } catch (error) {
+    console.error('Process missing error:', error);
+    res.status(500).json({ error: 'Failed to start processing: ' + error.message });
+  }
+});
+
+// Background processing for missing videos
+async function processMissingVideosAsync(jobId, channelUrl, processedIds) {
+  const job = channelJobs.get(jobId);
+
+  try {
+    job.status = 'fetching_videos';
+    const allVideos = await getChannelVideos(channelUrl, 500);
+
+    // Filter out already processed
+    const missingVideos = allVideos.filter(v => !processedIds.has(v.id));
+
+    job.total = missingVideos.length;
+    job.status = 'processing';
+
+    console.log(`[${jobId}] Found ${missingVideos.length} missing videos to process`);
+
+    for (let i = 0; i < missingVideos.length; i++) {
+      const video = missingVideos[i];
+      job.currentVideo = video.title;
+
+      try {
+        console.log(`[${jobId}] Processing ${i + 1}/${missingVideos.length}: ${video.title}`);
+        const result = await processVideo(video.url, video.id);
+
+        if (result.skipped) {
+          job.skipped++;
+          job.results.push({ title: video.title, status: 'skipped', reason: result.reason });
+        } else {
+          job.processed++;
+          job.results.push({ title: video.title, status: 'success', id: result.id });
+        }
+      } catch (error) {
+        console.error(`[${jobId}] Error:`, error.message);
+        job.failed++;
+        job.results.push({ title: video.title, status: 'failed', error: error.message });
+      }
+
+      await new Promise(r => setTimeout(r, 1000));
+    }
+
+    job.status = 'completed';
+    job.currentVideo = null;
+
+  } catch (error) {
+    console.error(`[${jobId}] Error:`, error);
+    job.status = 'error';
+    job.error = error.message;
+  }
+}
+
+// ============================================
+// AI PROCESSING & KEYWORD ENDPOINTS
+// ============================================
+
+// Get AI processing status
+app.get('/api/ai-status', async (req, res) => {
+  try {
+    const [keywordCount] = await pool.execute('SELECT COUNT(DISTINCT keyword) as count FROM keywords');
+    const [videoCount] = await pool.execute('SELECT COUNT(*) as count FROM podcasts WHERE keywords IS NOT NULL AND keywords != ""');
+    const [lastProcessed] = await pool.execute('SELECT MAX(ai_processed_at) as last FROM podcasts WHERE ai_processed_at IS NOT NULL');
+
+    res.json({
+      total_keywords: keywordCount[0].count || 0,
+      videos_analyzed: videoCount[0].count || 0,
+      last_processed: lastProcessed[0].last
+    });
+  } catch (error) {
+    console.error('AI status error:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Start AI processing for all videos
+app.post('/api/process-ai', async (req, res) => {
+  try {
+    const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+
+    aiJobs.set(jobId, {
+      status: 'starting',
+      total: 0,
+      processed: 0,
+      keywords_count: 0
+    });
+
+    res.json({ success: true, jobId });
+
+    // Process in background
+    processAiAsync(jobId);
+
+  } catch (error) {
+    console.error('AI processing error:', error);
+    res.status(500).json({ error: 'Failed to start AI processing' });
+  }
+});
+
+// Get AI job status
+app.get('/api/ai-status/:jobId', (req, res) => {
+  const job = aiJobs.get(req.params.jobId);
+
+  if (!job) {
+    return res.status(404).json({ error: 'Job not found' });
+  }
+
+  res.json(job);
+});
+
+// Background AI processing
+async function processAiAsync(jobId) {
+  const job = aiJobs.get(jobId);
+
+  try {
+    // Get all videos that haven't been AI processed or need reprocessing
+    const [videos] = await pool.execute(`
+      SELECT id, episode_title, podcast_name, summary, transcript
+      FROM podcasts
+      WHERE (keywords IS NULL OR keywords = '')
+      ORDER BY processed_at DESC
+    `);
+
+    job.total = videos.length;
+    job.status = 'processing';
+
+    console.log(`[AI-${jobId}] Processing ${videos.length} videos for keywords`);
+
+    const allKeywords = new Map();
+
+    for (let i = 0; i < videos.length; i++) {
+      const video = videos[i];
+
+      try {
+        // Extract keywords using Gemini
+        const textToAnalyze = `Title: ${video.episode_title}\nChannel: ${video.podcast_name}\nSummary: ${video.summary || ''}\n\nTranscript excerpt: ${(video.transcript || '').substring(0, 10000)}`;
+
+        const prompt = `Extract 5-10 main keywords/topics from this video content. Return ONLY a JSON array of lowercase keywords, no explanations. Focus on main subjects, people mentioned, concepts discussed.
+
+Example output: ["artificial intelligence", "elon musk", "space exploration", "neural networks"]
+
+Content:
+${textToAnalyze}`;
+
+        const result = await model.generateContent(prompt);
+        const text = result.response.text();
+
+        let keywords = [];
+        try {
+          const jsonMatch = text.match(/\[[\s\S]*\]/);
+          if (jsonMatch) {
+            keywords = JSON.parse(jsonMatch[0]);
+          }
+        } catch (e) {
+          // Try to extract comma-separated keywords
+          keywords = text.split(',').map(k => k.trim().toLowerCase().replace(/["\[\]]/g, '')).filter(k => k.length > 2);
+        }
+
+        // Clean and limit keywords
+        keywords = keywords
+          .map(k => k.toLowerCase().trim())
+          .filter(k => k.length > 2 && k.length < 50)
+          .slice(0, 10);
+
+        // Update video with keywords
+        const keywordsStr = keywords.join(',');
+        await pool.execute(
+          'UPDATE podcasts SET keywords = ?, ai_processed_at = NOW() WHERE id = ?',
+          [keywordsStr, video.id]
+        );
+
+        // Track keyword counts
+        keywords.forEach(k => {
+          allKeywords.set(k, (allKeywords.get(k) || 0) + 1);
+        });
+
+        job.processed++;
+        console.log(`[AI-${jobId}] Processed ${i + 1}/${videos.length}: ${video.episode_title} - ${keywords.length} keywords`);
+
+        // Rate limiting
+        await new Promise(r => setTimeout(r, 500));
+
+      } catch (error) {
+        console.error(`[AI-${jobId}] Error processing video ${video.id}:`, error.message);
+        job.processed++;
+      }
+    }
+
+    // Save all keywords to keywords table
+    console.log(`[AI-${jobId}] Saving ${allKeywords.size} unique keywords`);
+
+    for (const [keyword, count] of allKeywords) {
+      await pool.execute(`
+        INSERT INTO keywords (keyword, count, updated_at)
+        VALUES (?, ?, NOW())
+        ON DUPLICATE KEY UPDATE
+          count = count + VALUES(count),
+          updated_at = NOW()
+      `, [keyword, count]);
+    }
+
+    job.status = 'completed';
+    job.keywords_count = allKeywords.size;
+
+    console.log(`[AI-${jobId}] Completed! ${allKeywords.size} keywords extracted`);
+
+  } catch (error) {
+    console.error(`[AI-${jobId}] Error:`, error);
+    job.status = 'error';
+    job.error = error.message;
+  }
+}
+
+// Get popular keywords
+app.get('/api/keywords', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 30;
+
+    const [rows] = await pool.execute(`
+      SELECT keyword, count
+      FROM keywords
+      ORDER BY count DESC
+      LIMIT ?
+    `, [limit]);
+
+    res.json(rows);
+  } catch (error) {
+    console.error('Keywords error:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// ============================================
+// SEARCH ENDPOINT
+// ============================================
+
+// Search videos by keywords and text
+app.get('/api/search', async (req, res) => {
+  try {
+    const query = req.query.q;
+
+    if (!query || query.length < 2) {
+      return res.status(400).json({ error: 'Search query must be at least 2 characters' });
+    }
+
+    const searchTerms = query.toLowerCase().split(/\s+/).filter(t => t.length > 1);
+    const searchPattern = `%${query}%`;
+
+    // Search in title, summary, keywords, and best_part
+    const [rows] = await pool.execute(`
+      SELECT
+        id, spotify_url, podcast_name, episode_title, summary, best_part, keywords, processed_at,
+        (
+          (CASE WHEN LOWER(episode_title) LIKE ? THEN 40 ELSE 0 END) +
+          (CASE WHEN LOWER(keywords) LIKE ? THEN 30 ELSE 0 END) +
+          (CASE WHEN LOWER(summary) LIKE ? THEN 20 ELSE 0 END) +
+          (CASE WHEN LOWER(best_part) LIKE ? THEN 10 ELSE 0 END)
+        ) as relevance_score
+      FROM podcasts
+      WHERE
+        LOWER(episode_title) LIKE ? OR
+        LOWER(keywords) LIKE ? OR
+        LOWER(summary) LIKE ? OR
+        LOWER(best_part) LIKE ?
+      ORDER BY relevance_score DESC, processed_at DESC
+      LIMIT 50
+    `, [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern]);
+
+    res.json(rows);
+  } catch (error) {
+    console.error('Search error:', error);
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+// Update podcasts endpoint to support pagination
+app.get('/api/podcasts', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 100;
+    const offset = parseInt(req.query.offset) || 0;
+
+    const [rows] = await pool.execute(`
+      SELECT id, spotify_url, podcast_name, episode_title, summary, best_part, keywords, processed_at
+      FROM podcasts
+      ORDER BY processed_at DESC
+      LIMIT ? OFFSET ?
+    `, [limit, offset]);
+
+    res.json(rows);
+  } catch (error) {
+    console.error('List error:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
 app.listen(PORT, () => {

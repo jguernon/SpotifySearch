@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Search - YouTube Transcriber</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="search.css">
+</head>
+<body>
+  <div class="container wide">
+    <header>
+      <h1>Video Search</h1>
+      <p class="subtitle">Search through transcripts and find relevant content</p>
+      <nav class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="channels.html">Channels</a>
+        <a href="search.html" class="active">Search</a>
+      </nav>
+    </header>
+
+    <main>
+      <!-- Search Form -->
+      <section class="search-section">
+        <form id="searchForm">
+          <div class="search-input-wrapper">
+            <input
+              type="text"
+              id="searchInput"
+              placeholder="Search videos... (e.g., UFO, AI, health)"
+              autocomplete="off"
+            >
+            <button type="submit" id="searchBtn">
+              <span class="btn-text">Search</span>
+              <span class="btn-loading" style="display: none;">...</span>
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Popular Tags -->
+      <section class="tags-section">
+        <h2>Popular Topics</h2>
+        <div id="tagsCloud" class="tags-cloud">
+          <p class="loading-text">Loading popular topics...</p>
+        </div>
+      </section>
+
+      <!-- Search Results -->
+      <section id="resultsSection" class="results-section" style="display: none;">
+        <div class="results-header">
+          <h2>Search Results</h2>
+          <p id="resultsCount" class="results-count"></p>
+        </div>
+        <div id="resultsList" class="results-list"></div>
+      </section>
+
+      <!-- All Videos (shown when no search) -->
+      <section id="allVideosSection" class="all-videos-section">
+        <h2>Recent Videos</h2>
+        <div id="allVideosList" class="videos-list">
+          <p class="loading-text">Loading videos...</p>
+        </div>
+        <button id="loadMoreBtn" class="secondary-btn" style="display: none;">Load More</button>
+      </section>
+    </main>
+
+    <footer>
+      <p>Powered by Google Gemini AI</p>
+    </footer>
+  </div>
+
+  <script src="search.js"></script>
+</body>
+</html>
