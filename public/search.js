@@ -183,7 +183,9 @@ function createEpisodeCard(episode, searchQuery = null) {
   const keywords = episode.keywords ? episode.keywords.split(',').slice(0, 5) : [];
   const hasSnippets = episode.context_snippets && episode.context_snippets.length > 0;
 
-  let summary = episode.summary || 'No summary available';
+  // Decode any HTML entities that might be in the data, then escape for safe display
+  let summary = decodeHtmlEntities(episode.summary) || 'No summary available';
+  const title = decodeHtmlEntities(episode.episode_title) || 'Unknown Title';
 
   // Highlight search terms in summary if provided
   if (searchQuery) {
@@ -203,7 +205,8 @@ function createEpisodeCard(episode, searchQuery = null) {
       <div class="context-snippets">
         <p class="snippets-label">Found in transcript:</p>
         ${episode.context_snippets.map(snippet => {
-          let text = escapeHtml(snippet.text);
+          // Decode then escape to handle any stored HTML entities
+          let text = escapeHtml(decodeHtmlEntities(snippet.text));
           // Highlight the matched term
           if (snippet.matchedTerm) {
             const regex = new RegExp(`(${escapeRegex(snippet.matchedTerm)})`, 'gi');
@@ -217,11 +220,11 @@ function createEpisodeCard(episode, searchQuery = null) {
 
   // Generate thumbnail HTML
   const thumbnailHtml = episode.thumbnail_url
-    ? `<img src="${episode.thumbnail_url}" alt="${escapeHtml(episode.episode_title)}" class="episode-thumbnail" loading="lazy">`
+    ? `<img src="${episode.thumbnail_url}" alt="${escapeHtml(title)}" class="episode-thumbnail" loading="lazy">`
     : `<div class="episode-thumbnail placeholder"><span>No thumbnail</span></div>`;
 
   // Generate Spotify search URL
-  const spotifySearchUrl = episode.spotify_search_url || `https://open.spotify.com/search/${encodeURIComponent(episode.episode_title || '')}`;
+  const spotifySearchUrl = episode.spotify_search_url || `https://open.spotify.com/search/${encodeURIComponent(title)}`;
 
   return `
     <div class="episode-card">
@@ -231,7 +234,7 @@ function createEpisodeCard(episode, searchQuery = null) {
         </div>
         <div class="episode-details">
           <div class="episode-card-header">
-            <h3>${escapeHtml(episode.episode_title || 'Unknown Title')}</h3>
+            <h3>${escapeHtml(title)}</h3>
             ${episode.relevance_score ? `<span class="relevance-badge">${Math.round(episode.relevance_score)}% match</span>` : ''}
           </div>
           <p class="summary">${summary}</p>
@@ -269,6 +272,14 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+// Decode HTML entities (for data that may have been stored with encoded entities)
+function decodeHtmlEntities(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.innerHTML = text;
+  return div.textContent;
 }
 
 function escapeRegex(string) {

@@ -997,9 +997,26 @@ app.post('/api/keyword-blacklist/bulk', async (req, res) => {
 // SEARCH ENDPOINT
 // ============================================
 
+// Decode HTML entities in text
+function decodeHtmlEntities(text) {
+  if (!text) return '';
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec))
+    .replace(/&#x([0-9a-fA-F]+);/g, (match, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
 // Extract context snippets from transcript around search terms
 function extractContextSnippets(transcript, searchTerms, maxSnippets = 3, contextChars = 150) {
   if (!transcript) return [];
+
+  // Decode any HTML entities in the transcript first
+  transcript = decodeHtmlEntities(transcript);
 
   const snippets = [];
   const lowerTranscript = transcript.toLowerCase();
@@ -1088,19 +1105,24 @@ app.get('/api/search', async (req, res) => {
 
     const [rows] = await pool.execute(sqlQuery, params);
 
-    // Process results to extract context snippets
+    // Process results to extract context snippets and decode HTML entities
     const results = rows.map(row => {
       const snippets = extractContextSnippets(row.transcript, searchTerms);
 
+      // Decode HTML entities in text fields
+      const decodedTitle = decodeHtmlEntities(row.episode_title);
+      const decodedSummary = decodeHtmlEntities(row.summary);
+      const decodedPodcastName = decodeHtmlEntities(row.podcast_name);
+
       // Generate Spotify search URL
-      const spotifySearchUrl = `https://open.spotify.com/search/${encodeURIComponent(row.episode_title)}`;
+      const spotifySearchUrl = `https://open.spotify.com/search/${encodeURIComponent(decodedTitle)}`;
 
       return {
         id: row.id,
         spotify_url: row.spotify_url,
-        podcast_name: row.podcast_name,
-        episode_title: row.episode_title,
-        summary: row.summary,
+        podcast_name: decodedPodcastName,
+        episode_title: decodedTitle,
+        summary: decodedSummary,
         keywords: row.keywords,
         processed_at: row.processed_at,
         thumbnail_url: row.thumbnail_url,
