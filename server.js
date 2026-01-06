@@ -201,7 +201,7 @@ function parseVTT(vttContent) {
 }
 
 // Process a single video and save to database
-async function processVideo(url, videoId, skipExisting = true) {
+async function processVideo(url, videoId, skipExisting = true, language = 'en') {
   // Check if already processed
   if (skipExisting) {
     const [existing] = await pool.execute(
@@ -255,10 +255,10 @@ ${transcript.substring(0, 30000)}`;
     };
   }
 
-  // Save to database with thumbnail
+  // Save to database with thumbnail and language
   const [insertResult] = await pool.execute(
-    `INSERT INTO podcasts (spotify_url, podcast_name, episode_title, transcript, best_part, summary, thumbnail_url)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO podcasts (spotify_url, podcast_name, episode_title, transcript, best_part, summary, thumbnail_url, language)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       url,
       ytInfo.channel || 'Unknown',
@@ -266,7 +266,8 @@ ${transcript.substring(0, 30000)}`;
       transcript,
       analysis.best_part || '',
       analysis.summary || '',
-      ytInfo.thumbnail || null
+      ytInfo.thumbnail || null,
+      language
     ]
   );
 
@@ -307,7 +308,7 @@ app.get('/api/check', async (req, res) => {
 // Process single video or start channel processing
 app.post('/api/process', async (req, res) => {
   try {
-    const { url, maxVideos = 50 } = req.body;
+    const { url, maxVideos = 50, language = 'en' } = req.body;
 
     if (!url) {
       return res.status(400).json({ error: 'URL is required' });
@@ -326,7 +327,7 @@ app.post('/api/process', async (req, res) => {
         return res.status(400).json({ error: 'Could not extract video ID from URL' });
       }
 
-      const result = await processVideo(url, videoId);
+      const result = await processVideo(url, videoId, true, language);
 
       if (result.skipped) {
         if (result.reason === 'already_processed') {
@@ -354,6 +355,7 @@ app.post('/api/process', async (req, res) => {
       channelJobs.set(jobId, {
         status: 'starting',
         url: url,
+        language: language,
         total: 0,
         processed: 0,
         skipped: 0,
@@ -369,7 +371,7 @@ app.post('/api/process', async (req, res) => {
       });
 
       // Process in background
-      processChannelAsync(jobId, url, Math.min(maxVideos, 100));
+      processChannelAsync(jobId, url, Math.min(maxVideos, 100), language);
 
     } else {
       return res.status(400).json({ error: 'Could not determine URL type. Use a video, channel, or playlist URL.' });
@@ -382,7 +384,7 @@ app.post('/api/process', async (req, res) => {
 });
 
 // Background channel processing
-async function processChannelAsync(jobId, channelUrl, maxVideos) {
+async function processChannelAsync(jobId, channelUrl, maxVideos, language = 'en') {
   const job = channelJobs.get(jobId);
 
   try {
@@ -409,7 +411,7 @@ async function processChannelAsync(jobId, channelUrl, maxVideos) {
 
       try {
         console.log(`[${jobId}] Processing ${i + 1}/${newVideos.length}: ${video.title}`);
-        const result = await processVideo(video.url, video.id, false); // skipExisting=false since we already filtered
+        const result = await processVideo(video.url, video.id, false, language); // skipExisting=false since we already filtered
 
         if (result.skipped) {
           job.skipped++;
@@ -744,7 +746,7 @@ async function processAiAsync(jobId) {
 
     // Get all videos that haven't been AI processed or need reprocessing
     const [videos] = await pool.execute(`
-      SELECT id, episode_title, podcast_name, summary, transcript
+      SELECT id, episode_title, podcast_name, summary, transcript, language
       FROM podcasts
       WHERE (keywords IS NULL OR keywords = '')
       ORDER BY processed_at DESC
@@ -755,10 +757,11 @@ async function processAiAsync(jobId) {
 
     console.log(`[AI-${jobId}] Processing ${videos.length} videos for keywords (${blacklist.size} blacklisted terms)`);
 
-    const allKeywords = new Map();
+    const allKeywords = new Map(); // Map of "keyword|language" -> count
 
     for (let i = 0; i < videos.length; i++) {
       const video = videos[i];
+      const videoLang = video.language || 'en';
 
       try {
         // Extract keywords using Gemini
@@ -799,9 +802,10 @@ ${textToAnalyze}`;
           [keywordsStr, video.id]
         );
 
-        // Track keyword counts (only non-blacklisted)
+        // Track keyword counts with language (only non-blacklisted)
         keywords.forEach(k => {
-          allKeywords.set(k, (allKeywords.get(k) || 0) + 1);
+          const key = `${k}|${videoLang}`;
+          allKeywords.set(key, (allKeywords.get(key) || 0) + 1);
         });
 
         job.processed++;
@@ -819,15 +823,16 @@ ${textToAnalyze}`;
     // Save all keywords to keywords table (excluding blacklisted)
     console.log(`[AI-${jobId}] Saving ${allKeywords.size} unique keywords`);
 
-    for (const [keyword, count] of allKeywords) {
+    for (const [keyLang, count] of allKeywords) {
+      const [keyword, lang] = keyLang.split('|');
       if (!blacklist.has(keyword)) {
         await pool.execute(`
-          INSERT INTO keywords (keyword, count, updated_at)
-          VALUES (?, ?, NOW())
+          INSERT INTO keywords (keyword, language, count, updated_at)
+          VALUES (?, ?, ?, NOW())
           ON DUPLICATE KEY UPDATE
             count = count + VALUES(count),
             updated_at = NOW()
-        `, [keyword, count]);
+        `, [keyword, lang, count]);
       }
     }
 
@@ -848,28 +853,59 @@ app.get('/api/keywords', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 30;
     const includeBlacklisted = req.query.includeBlacklisted === 'true';
+    const language = req.query.lang || null; // Filter by language if provided
 
     let query;
+    let params = [];
+
     if (includeBlacklisted) {
-      query = `
-        SELECT k.keyword, k.count, (b.keyword IS NOT NULL) as is_blacklisted
-        FROM keywords k
-        LEFT JOIN keyword_blacklist b ON k.keyword = b.keyword
-        ORDER BY k.count DESC
-        LIMIT ?
-      `;
+      if (language) {
+        query = `
+          SELECT k.keyword, k.count, k.language, (b.keyword IS NOT NULL) as is_blacklisted
+          FROM keywords k
+          LEFT JOIN keyword_blacklist b ON k.keyword = b.keyword
+          WHERE k.language = ?
+          ORDER BY k.count DESC
+          LIMIT ?
+        `;
+        params = [language, limit];
+      } else {
+        query = `
+          SELECT k.keyword, SUM(k.count) as count, (b.keyword IS NOT NULL) as is_blacklisted
+          FROM keywords k
+          LEFT JOIN keyword_blacklist b ON k.keyword = b.keyword
+          GROUP BY k.keyword, b.keyword
+          ORDER BY count DESC
+          LIMIT ?
+        `;
+        params = [limit];
+      }
     } else {
-      query = `
-        SELECT k.keyword, k.count, false as is_blacklisted
-        FROM keywords k
-        LEFT JOIN keyword_blacklist b ON k.keyword = b.keyword
-        WHERE b.keyword IS NULL
-        ORDER BY k.count DESC
-        LIMIT ?
-      `;
+      if (language) {
+        query = `
+          SELECT k.keyword, k.count, k.language, false as is_blacklisted
+          FROM keywords k
+          LEFT JOIN keyword_blacklist b ON k.keyword = b.keyword
+          WHERE b.keyword IS NULL AND k.language = ?
+          ORDER BY k.count DESC
+          LIMIT ?
+        `;
+        params = [language, limit];
+      } else {
+        query = `
+          SELECT k.keyword, SUM(k.count) as count, false as is_blacklisted
+          FROM keywords k
+          LEFT JOIN keyword_blacklist b ON k.keyword = b.keyword
+          WHERE b.keyword IS NULL
+          GROUP BY k.keyword
+          ORDER BY count DESC
+          LIMIT ?
+        `;
+        params = [limit];
+      }
     }
 
-    const [rows] = await pool.execute(query, [limit]);
+    const [rows] = await pool.execute(query, params);
     res.json(rows);
   } catch (error) {
     console.error('Keywords error:', error);
@@ -1013,6 +1049,7 @@ function extractContextSnippets(transcript, searchTerms, maxSnippets = 3, contex
 app.get('/api/search', async (req, res) => {
   try {
     const query = req.query.q;
+    const language = req.query.lang || null; // Filter by language if provided
 
     if (!query || query.length < 2) {
       return res.status(400).json({ error: 'Search query must be at least 2 characters' });
@@ -1021,11 +1058,11 @@ app.get('/api/search', async (req, res) => {
     const searchTerms = query.toLowerCase().split(/\s+/).filter(t => t.length > 1);
     const searchPattern = `%${query}%`;
 
-    // Search in title, summary, keywords, and transcript
-    const [rows] = await pool.execute(`
+    // Build query with optional language filter
+    let sqlQuery = `
       SELECT
         id, spotify_url, podcast_name, episode_title, summary, keywords, processed_at,
-        thumbnail_url, transcript,
+        thumbnail_url, transcript, language,
         (
           (CASE WHEN LOWER(episode_title) LIKE ? THEN 50 ELSE 0 END) +
           (CASE WHEN LOWER(keywords) LIKE ? THEN 40 ELSE 0 END) +
@@ -1034,13 +1071,22 @@ app.get('/api/search', async (req, res) => {
         ) as relevance_score
       FROM podcasts
       WHERE
-        LOWER(episode_title) LIKE ? OR
+        (LOWER(episode_title) LIKE ? OR
         LOWER(keywords) LIKE ? OR
         LOWER(summary) LIKE ? OR
-        LOWER(transcript) LIKE ?
-      ORDER BY relevance_score DESC, processed_at DESC
-      LIMIT 50
-    `, [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern]);
+        LOWER(transcript) LIKE ?)
+    `;
+
+    let params = [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern];
+
+    if (language) {
+      sqlQuery += ` AND language = ?`;
+      params.push(language);
+    }
+
+    sqlQuery += ` ORDER BY relevance_score DESC, processed_at DESC LIMIT 50`;
+
+    const [rows] = await pool.execute(sqlQuery, params);
 
     // Process results to extract context snippets
     const results = rows.map(row => {

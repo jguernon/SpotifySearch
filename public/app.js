@@ -28,6 +28,19 @@ let channelResultsSection = document.getElementById('channelResultsSection');
 // API Base URL
 const API_BASE = window.location.origin;
 
+// Language selector
+const languageSelect = document.getElementById('languageSelect');
+const langBtns = document.querySelectorAll('.lang-btn');
+
+// Set up language toggle buttons
+langBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    langBtns.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    languageSelect.value = btn.dataset.lang;
+  });
+});
+
 // Load history on page load
 document.addEventListener('DOMContentLoaded', loadHistory);
 
@@ -100,10 +113,11 @@ async function processVideo(url) {
 
   updateProgress(20, 'Fetching subtitles...');
 
+  const language = languageSelect ? languageSelect.value : 'en';
   const processResponse = await fetch(`${API_BASE}/api/process`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url })
+    body: JSON.stringify({ url, language })
   });
 
   const processData = await processResponse.json();
@@ -125,10 +139,11 @@ async function processVideo(url) {
 async function processChannel(url, type) {
   updateProgress(5, `Starting ${type} processing...`);
 
+  const language = languageSelect ? languageSelect.value : 'en';
   const processResponse = await fetch(`${API_BASE}/api/process`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, maxVideos: 50 })
+    body: JSON.stringify({ url, maxVideos: 50, language })
   });
 
   const processData = await processResponse.json();

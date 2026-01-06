@@ -23,6 +23,27 @@ let currentResults = [];
 let currentQuery = '';
 let currentSort = 'relevance';
 
+// Language selection
+let currentLanguage = 'en';
+
+// Set language and reload content
+function setLanguage(lang) {
+  currentLanguage = lang;
+
+  // Update button states
+  document.querySelectorAll('.language-toggle-header .lang-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.lang === lang);
+  });
+
+  // Reload popular tags for the selected language
+  loadPopularTags();
+
+  // If there's a current search, re-run it with new language
+  if (currentQuery) {
+    performSearch(currentQuery);
+  }
+}
+
 // Sort results
 function sortResults(sortType) {
   if (currentResults.length === 0) return;
@@ -75,7 +96,7 @@ async function loadPopularTags() {
   tagsCloud.innerHTML = '<p class="loading-text">Loading popular topics...</p>';
 
   try {
-    const response = await fetch(`${API_BASE}/api/keywords?limit=30`);
+    const response = await fetch(`${API_BASE}/api/keywords?limit=30&lang=${currentLanguage}`);
     const keywords = await response.json();
 
     if (keywords.length === 0) {
@@ -111,7 +132,7 @@ async function performSearch(query) {
   resultsList.innerHTML = '<p class="loading-text">Searching...</p>';
 
   try {
-    const response = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(query)}`);
+    const response = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(query)}&lang=${currentLanguage}`);
     const results = await response.json();
 
     // Store results for sorting

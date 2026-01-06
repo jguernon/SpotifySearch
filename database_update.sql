@@ -46,3 +46,22 @@ CREATE TABLE IF NOT EXISTS keyword_blacklist (
 -- Add fulltext index for transcript search (much faster than LIKE)
 ALTER TABLE podcasts ADD FULLTEXT INDEX idx_transcript_fulltext (transcript);
 ALTER TABLE podcasts ADD FULLTEXT INDEX idx_all_text_fulltext (episode_title, summary, transcript);
+
+-- Add language support
+ALTER TABLE podcasts
+ADD COLUMN IF NOT EXISTS language VARCHAR(2) DEFAULT 'en';
+
+ALTER TABLE keywords
+ADD COLUMN IF NOT EXISTS language VARCHAR(2) DEFAULT 'en';
+
+-- Drop unique constraint on keyword and recreate with language
+ALTER TABLE keywords DROP INDEX keyword;
+ALTER TABLE keywords ADD UNIQUE INDEX idx_keyword_lang (keyword, language);
+
+-- Add language to channels table
+ALTER TABLE channels
+ADD COLUMN IF NOT EXISTS language VARCHAR(2) DEFAULT 'en';
+
+-- Index for language filtering
+CREATE INDEX IF NOT EXISTS idx_podcasts_language ON podcasts(language);
+CREATE INDEX IF NOT EXISTS idx_keywords_language ON keywords(language);

@@ -32,6 +32,15 @@
           <p class="field-hint">Paste a YouTube video link - Gemini AI will listen and transcribe it automatically</p>
         </div>
 
+        <div class="form-group">
+          <label for="languageSelect">Content Language</label>
+          <div class="language-toggle">
+            <button type="button" class="lang-btn active" data-lang="en">English</button>
+            <button type="button" class="lang-btn" data-lang="fr">Français</button>
+          </div>
+          <input type="hidden" id="languageSelect" name="language" value="en">
+        </div>
+
         <button type="submit" id="submitBtn">
           <span class="btn-text">Analyze Video</span>
           <span class="btn-loading" style="display: none;">Processing...</span>
