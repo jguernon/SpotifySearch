@@ -4,8 +4,6 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-const https = require('https');
-const http = require('http');
 const { exec } = require('child_process');
 const util = require('util');
 const execPromise = util.promisify(exec);
@@ -24,9 +22,6 @@ const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
-// Listen Notes API key (optional, for non-YouTube podcasts)
-const LISTEN_NOTES_API_KEY = process.env.LISTEN_NOTES_API_KEY;
-
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -36,16 +31,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 const TEMP_DIR = path.join(__dirname, 'temp');
 if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
-}
-
-// Detect URL type
-function detectUrlType(url) {
-  if (url.includes('youtube.com') || url.includes('youtu.be')) {
-    return 'youtube';
-  } else if (url.includes('open.spotify.com/episode/')) {
-    return 'spotify';
-  }
-  return 'unknown';
 }
 
 // Extract YouTube video ID
@@ -61,12 +46,6 @@ function extractYoutubeId(url) {
   return null;
 }
 
-// Extract Spotify episode ID
-function extractSpotifyId(url) {
-  const match = url.match(/episode\/([a-zA-Z0-9]+)/);
-  return match ? match[1] : null;
-}
-
 // Download audio from YouTube using yt-dlp
 async function downloadFromYoutube(youtubeUrl, outputPath) {
   console.log('Downloading from YouTube with yt-dlp...');
@@ -74,11 +53,10 @@ async function downloadFromYoutube(youtubeUrl, outputPath) {
   const outputTemplate = outputPath.replace(/\.[^/.]+$/, '');
 
   try {
-    // Download audio only, convert to mp3, lower quality for smaller file size
     const cmd = `yt-dlp -x --audio-format mp3 --audio-quality 9 -o "${outputTemplate}.%(ext)s" --no-playlist "${youtubeUrl}"`;
     console.log('Running:', cmd);
 
-    await execPromise(cmd, { timeout: 900000 }); // 15 min timeout
+    await execPromise(cmd, { timeout: 900000 });
 
     const expectedPath = `${outputTemplate}.mp3`;
     if (fs.existsSync(expectedPath)) {
@@ -118,137 +96,6 @@ async function getYoutubeInfo(youtubeUrl) {
   }
 }
 
-// Get episode info from Spotify oEmbed API
-async function getSpotifyEpisodeInfo(spotifyUrl) {
-  return new Promise((resolve, reject) => {
-    const oembedUrl = `https://open.spotify.com/oembed?url=${encodeURIComponent(spotifyUrl)}`;
-
-    https.get(oembedUrl, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          const info = JSON.parse(data);
-          resolve({
-            title: info.title || 'Unknown Episode',
-            provider: info.provider_name || 'Spotify'
-          });
-        } catch (e) {
-          reject(new Error('Failed to parse Spotify info'));
-        }
-      });
-    }).on('error', reject);
-  });
-}
-
-// Search YouTube for Spotify podcast episode
-async function searchYoutubeForPodcast(episodeTitle, podcastName = '') {
-  const query = `${episodeTitle} ${podcastName} podcast full episode`.trim();
-  console.log('Searching YouTube for:', query);
-
-  try {
-    const { stdout } = await execPromise(
-      `yt-dlp "ytsearch1:${query}" --dump-json --no-download`,
-      { timeout: 30000 }
-    );
-    const info = JSON.parse(stdout);
-
-    if (info && info.webpage_url) {
-      return {
-        url: info.webpage_url,
-        title: info.title,
-        channel: info.uploader || info.channel,
-        duration: info.duration
-      };
-    }
-    throw new Error('No results found');
-  } catch (error) {
-    console.error('YouTube search error:', error.message);
-    throw new Error('Could not find podcast on YouTube');
-  }
-}
-
-// Search for podcast episode on Listen Notes (fallback)
-async function searchListenNotes(episodeTitle, podcastName = '') {
-  if (!LISTEN_NOTES_API_KEY) {
-    throw new Error('Listen Notes API key not configured');
-  }
-
-  return new Promise((resolve, reject) => {
-    const query = encodeURIComponent(`${episodeTitle} ${podcastName}`.trim());
-    const options = {
-      hostname: 'listen-api.listennotes.com',
-      path: `/api/v2/search?q=${query}&type=episode&len_min=1`,
-      method: 'GET',
-      headers: {
-        'X-ListenAPI-Key': LISTEN_NOTES_API_KEY
-      }
-    };
-
-    https.request(options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          const result = JSON.parse(data);
-          if (result.results && result.results.length > 0) {
-            const episode = result.results[0];
-            resolve({
-              audio_url: episode.audio,
-              title: episode.title_original,
-              podcast_name: episode.podcast?.title_original || 'Unknown Podcast',
-              description: episode.description_original,
-              audio_length_sec: episode.audio_length_sec
-            });
-          } else {
-            reject(new Error('Episode not found on Listen Notes'));
-          }
-        } catch (e) {
-          reject(new Error('Failed to parse Listen Notes response'));
-        }
-      });
-    }).on('error', reject).end();
-  });
-}
-
-// Download audio file from URL (for Listen Notes)
-async function downloadAudioFromUrl(audioUrl, outputPath) {
-  return new Promise((resolve, reject) => {
-    const protocol = audioUrl.startsWith('https') ? https : http;
-
-    const download = (url, redirectCount = 0) => {
-      if (redirectCount > 5) {
-        return reject(new Error('Too many redirects'));
-      }
-
-      protocol.get(url, (res) => {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          return download(res.headers.location, redirectCount + 1);
-        }
-
-        if (res.statusCode !== 200) {
-          return reject(new Error(`Failed to download: HTTP ${res.statusCode}`));
-        }
-
-        const file = fs.createWriteStream(outputPath);
-        res.pipe(file);
-
-        file.on('finish', () => {
-          file.close();
-          resolve(outputPath);
-        });
-
-        file.on('error', (err) => {
-          fs.unlink(outputPath, () => {});
-          reject(err);
-        });
-      }).on('error', reject);
-    };
-
-    download(audioUrl);
-  });
-}
-
 // Upload file to Gemini and wait for processing
 async function uploadToGemini(filePath, mimeType) {
   console.log('Uploading file to Gemini File API...');
@@ -260,7 +107,6 @@ async function uploadToGemini(filePath, mimeType) {
 
   console.log(`Uploaded file: ${uploadResult.file.name}`);
 
-  // Wait for file to be processed
   let file = uploadResult.file;
   while (file.state === 'PROCESSING') {
     console.log('Waiting for file processing...');
@@ -310,7 +156,7 @@ app.get('/api/check', async (req, res) => {
   }
 });
 
-// Process podcast - supports YouTube and Spotify URLs
+// Process YouTube URL - download audio, transcribe with Gemini
 app.post('/api/process', async (req, res) => {
   let audioPath = null;
   let geminiFile = null;
@@ -322,20 +168,14 @@ app.post('/api/process', async (req, res) => {
       return res.status(400).json({ error: 'URL is required' });
     }
 
-    const urlType = detectUrlType(url);
-
-    if (urlType === 'unknown') {
-      return res.status(400).json({
-        error: 'Please provide a valid YouTube or Spotify episode URL'
-      });
+    // Validate YouTube URL
+    if (!url.includes('youtube.com') && !url.includes('youtu.be')) {
+      return res.status(400).json({ error: 'Please provide a valid YouTube URL' });
     }
 
-    const episodeId = urlType === 'youtube'
-      ? extractYoutubeId(url)
-      : extractSpotifyId(url);
-
-    if (!episodeId) {
-      return res.status(400).json({ error: 'Could not extract episode ID from URL' });
+    const videoId = extractYoutubeId(url);
+    if (!videoId) {
+      return res.status(400).json({ error: 'Could not extract video ID from URL' });
     }
 
     // Check if already processed
@@ -346,79 +186,19 @@ app.post('/api/process', async (req, res) => {
 
     if (existing.length > 0) {
       return res.status(409).json({
-        error: 'This podcast URL has already been processed',
+        error: 'This URL has already been processed',
         exists: true
       });
     }
 
-    let metadata = { title: 'Unknown', podcast_name: 'Unknown' };
-    audioPath = path.join(TEMP_DIR, `${episodeId}.mp3`);
+    // Get video info
+    console.log('Getting YouTube video info...');
+    const ytInfo = await getYoutubeInfo(url);
+    console.log('Video title:', ytInfo.title);
 
-    // Process based on URL type
-    if (urlType === 'youtube') {
-      console.log('Processing YouTube URL...');
-      const ytInfo = await getYoutubeInfo(url);
-      metadata = {
-        title: ytInfo.title,
-        podcast_name: ytInfo.channel
-      };
-
-      await downloadFromYoutube(url, audioPath);
-
-    } else if (urlType === 'spotify') {
-      console.log('Processing Spotify URL...');
-
-      const spotifyInfo = await getSpotifyEpisodeInfo(url).catch(() => ({
-        title: 'Unknown',
-        provider: 'Spotify'
-      }));
-
-      console.log('Spotify episode title:', spotifyInfo.title);
-
-      let downloadedFromYoutube = false;
-      try {
-        const ytResult = await searchYoutubeForPodcast(spotifyInfo.title);
-        console.log('Found on YouTube:', ytResult.title);
-
-        metadata = {
-          title: ytResult.title,
-          podcast_name: ytResult.channel
-        };
-
-        await downloadFromYoutube(ytResult.url, audioPath);
-        downloadedFromYoutube = true;
-
-      } catch (ytError) {
-        console.log('YouTube search failed, trying Listen Notes...', ytError.message);
-      }
-
-      if (!downloadedFromYoutube && LISTEN_NOTES_API_KEY) {
-        try {
-          const lnResult = await searchListenNotes(spotifyInfo.title);
-          console.log('Found on Listen Notes:', lnResult.title);
-
-          metadata = {
-            title: lnResult.title,
-            podcast_name: lnResult.podcast_name
-          };
-
-          await downloadAudioFromUrl(lnResult.audio_url, audioPath);
-
-        } catch (lnError) {
-          console.log('Listen Notes also failed:', lnError.message);
-          return res.status(404).json({
-            error: 'Could not find this podcast episode on YouTube or Listen Notes.',
-            suggestion: 'Try providing the YouTube URL directly if you can find the episode there.',
-            details: lnError.message
-          });
-        }
-      } else if (!downloadedFromYoutube) {
-        return res.status(404).json({
-          error: 'Could not find this podcast episode on YouTube.',
-          suggestion: 'Try providing the YouTube URL directly if you can find the episode there.'
-        });
-      }
-    }
+    // Download audio
+    audioPath = path.join(TEMP_DIR, `${videoId}.mp3`);
+    await downloadFromYoutube(url, audioPath);
 
     // Verify file exists
     if (!fs.existsSync(audioPath)) {
@@ -429,31 +209,30 @@ app.post('/api/process', async (req, res) => {
     const fileSizeMB = stats.size / (1024 * 1024);
     console.log(`Audio file size: ${fileSizeMB.toFixed(2)} MB`);
 
-    // Check max size (Gemini File API limit is 2GB, but we limit to 100MB for practical reasons)
     if (fileSizeMB > 100) {
       fs.unlinkSync(audioPath);
       return res.status(413).json({
-        error: 'Audio file is too large for processing. Maximum size is 100MB.',
+        error: 'Audio file is too large. Maximum size is 100MB.',
         size: `${fileSizeMB.toFixed(2)} MB`
       });
     }
 
-    // Upload to Gemini File API (works for files > 20MB)
-    console.log('Uploading to Gemini File API...');
+    // Upload to Gemini File API
+    console.log('Uploading to Gemini...');
     geminiFile = await uploadToGemini(audioPath, 'audio/mp3');
 
-    console.log('Sending to Gemini for transcription...');
+    console.log('Transcribing with Gemini...');
 
-    const prompt = `Listen to this podcast episode and provide the following in JSON format:
+    const prompt = `Listen to this audio and provide the following in JSON format:
 {
-  "podcast_name": "The name/title of the podcast series",
-  "episode_title": "The title of this specific episode",
-  "transcript": "The full transcript of the podcast episode",
-  "summary": "A concise 2-3 sentence summary of the episode content",
-  "best_part": "The most interesting, insightful, or valuable quote or segment (1-3 sentences, exact quote from the podcast)"
+  "podcast_name": "The name/title of the podcast or channel",
+  "episode_title": "The title of this episode/video",
+  "transcript": "The full transcript of the audio",
+  "summary": "A concise 2-3 sentence summary",
+  "best_part": "The most interesting quote or segment (1-3 sentences)"
 }
 
-Please transcribe the entire audio and analyze its content. If you cannot determine podcast or episode name, use "Unknown".`;
+Transcribe the entire audio. If you cannot determine names, use "Unknown".`;
 
     const result = await model.generateContent([
       prompt,
@@ -482,20 +261,20 @@ Please transcribe the entire audio and analyze its content. If you cannot determ
     } catch (parseError) {
       console.error('Parse error:', parseError);
       analysis = {
-        podcast_name: metadata.podcast_name,
-        episode_title: metadata.title,
+        podcast_name: ytInfo.channel,
+        episode_title: ytInfo.title,
         transcript: text,
         summary: 'Could not parse summary',
         best_part: 'Could not extract best part'
       };
     }
 
-    // Use metadata as fallback
+    // Use YouTube metadata as fallback
     if (!analysis.podcast_name || analysis.podcast_name === 'Unknown') {
-      analysis.podcast_name = metadata.podcast_name;
+      analysis.podcast_name = ytInfo.channel;
     }
     if (!analysis.episode_title || analysis.episode_title === 'Unknown') {
-      analysis.episode_title = metadata.title;
+      analysis.episode_title = ytInfo.title;
     }
 
     // Save to database
@@ -534,7 +313,6 @@ Please transcribe the entire audio and analyze its content. If you cannot determ
   } catch (error) {
     console.error('Process error:', error);
 
-    // Clean up on error
     if (audioPath && fs.existsSync(audioPath)) {
       fs.unlinkSync(audioPath);
     }
@@ -542,7 +320,7 @@ Please transcribe the entire audio and analyze its content. If you cannot determ
       await deleteFromGemini(geminiFile.name);
     }
 
-    res.status(500).json({ error: 'Failed to process podcast: ' + error.message });
+    res.status(500).json({ error: 'Failed to process: ' + error.message });
   }
 });
 
@@ -585,6 +363,5 @@ app.get('/health', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
-  console.log('Supported URL types: YouTube, Spotify');
-  console.log('Max audio file size: 100MB (using Gemini File API)');
+  console.log('Accepts YouTube URLs only');
 });
