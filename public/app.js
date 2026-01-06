@@ -22,11 +22,26 @@ const newAnalysisBtn = document.getElementById('newAnalysisBtn');
 
 const historyList = document.getElementById('historyList');
 
+// Channel processing elements
+let channelResultsSection = document.getElementById('channelResultsSection');
+
 // API Base URL
 const API_BASE = window.location.origin;
 
 // Load history on page load
 document.addEventListener('DOMContentLoaded', loadHistory);
+
+// Detect URL type
+function detectUrlType(url) {
+  if (url.includes('/watch?v=') || url.includes('youtu.be/')) {
+    return 'video';
+  } else if (url.includes('/channel/') || url.includes('/c/') || url.includes('/@') || url.includes('/user/')) {
+    return 'channel';
+  } else if (url.includes('/playlist?list=')) {
+    return 'playlist';
+  }
+  return 'unknown';
+}
 
 // Form submission
 form.addEventListener('submit', async (e) => {
@@ -39,110 +54,29 @@ form.addEventListener('submit', async (e) => {
     return;
   }
 
-  // Validate YouTube URL format
   if (!url.includes('youtube.com') && !url.includes('youtu.be')) {
-    showError('Please enter a valid YouTube URL (e.g., https://www.youtube.com/watch?v=...)');
+    showError('Please enter a valid YouTube URL');
     return;
   }
 
   // Reset UI
   hideError();
   hideResults();
+  hideChannelResults();
 
-  // Check if URL already exists
   setLoading(true);
-  updateProgress(5, 'Checking if already processed...');
   showProgress();
 
+  const urlType = detectUrlType(url);
+
   try {
-    const checkResponse = await fetch(`${API_BASE}/api/check?url=${encodeURIComponent(url)}`);
-    const checkData = await checkResponse.json();
-
-    if (checkData.exists) {
-      setLoading(false);
-      hideProgress();
-      showError(`This video has already been processed on ${new Date(checkData.data.processed_at).toLocaleDateString()}. Title: "${checkData.data.episode_title}"`);
-      return;
+    if (urlType === 'video') {
+      await processVideo(url);
+    } else if (urlType === 'channel' || urlType === 'playlist') {
+      await processChannel(url, urlType);
+    } else {
+      throw new Error('Could not determine URL type. Use a video, channel, or playlist URL.');
     }
-
-    // Start processing
-    updateProgress(10, 'Downloading audio from YouTube...');
-
-    // Start the processing request
-    const processPromise = fetch(`${API_BASE}/api/process`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ url })
-    });
-
-    // Simulate progress while waiting
-    let currentProgress = 10;
-    const progressInterval = setInterval(() => {
-      if (currentProgress < 90) {
-        currentProgress += 2;
-        const messages = [
-          'Downloading audio from YouTube...',
-          'Downloading audio from YouTube...',
-          'Downloading audio from YouTube...',
-          'Downloading audio from YouTube...',
-          'Downloading audio from YouTube...',
-          'Preparing audio for analysis...',
-          'Preparing audio for analysis...',
-          'Uploading to Gemini AI...',
-          'Uploading to Gemini AI...',
-          'Gemini is listening...',
-          'Gemini is listening...',
-          'Gemini is listening...',
-          'Gemini is listening...',
-          'Gemini is listening...',
-          'Transcribing audio...',
-          'Transcribing audio...',
-          'Transcribing audio...',
-          'Analyzing content...',
-          'Analyzing content...',
-          'Identifying key insights...',
-          'Identifying key insights...',
-          'Extracting best moments...',
-          'Extracting best moments...',
-          'Generating summary...',
-          'Generating summary...',
-          'Preparing results...',
-          'Preparing results...',
-          'Almost done...',
-          'Almost done...',
-          'Finalizing...'
-        ];
-        const msgIndex = Math.min(Math.floor((currentProgress - 10) / 3), messages.length - 1);
-        updateProgress(currentProgress, messages[msgIndex]);
-      }
-    }, 3000);
-
-    const processResponse = await processPromise;
-    const processData = await processResponse.json();
-    clearInterval(progressInterval);
-
-    if (!processResponse.ok) {
-      throw new Error(processData.error || 'Failed to process video');
-    }
-
-    updateProgress(95, 'Saving to database...');
-    await sleep(300);
-
-    updateProgress(100, 'Complete!');
-    await sleep(500);
-
-    // Show results
-    hideProgress();
-    showResults(processData.data);
-
-    // Reload history
-    loadHistory();
-
-    // Clear form
-    form.reset();
-
   } catch (error) {
     hideProgress();
     showError(error.message);
@@ -151,9 +85,102 @@ form.addEventListener('submit', async (e) => {
   }
 });
 
+// Process single video
+async function processVideo(url) {
+  updateProgress(5, 'Checking if already processed...');
+
+  const checkResponse = await fetch(`${API_BASE}/api/check?url=${encodeURIComponent(url)}`);
+  const checkData = await checkResponse.json();
+
+  if (checkData.exists) {
+    hideProgress();
+    showError(`This video has already been processed. Title: "${checkData.data.episode_title}"`);
+    return;
+  }
+
+  updateProgress(20, 'Fetching subtitles...');
+
+  const processResponse = await fetch(`${API_BASE}/api/process`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url })
+  });
+
+  const processData = await processResponse.json();
+
+  if (!processResponse.ok) {
+    throw new Error(processData.error || 'Failed to process video');
+  }
+
+  updateProgress(100, 'Complete!');
+  await sleep(500);
+
+  hideProgress();
+  showResults(processData.data);
+  loadHistory();
+  form.reset();
+}
+
+// Process channel or playlist
+async function processChannel(url, type) {
+  updateProgress(5, `Starting ${type} processing...`);
+
+  const processResponse = await fetch(`${API_BASE}/api/process`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, maxVideos: 50 })
+  });
+
+  const processData = await processResponse.json();
+
+  if (!processResponse.ok) {
+    throw new Error(processData.error || 'Failed to start processing');
+  }
+
+  const jobId = processData.jobId;
+  updateProgress(10, 'Fetching video list...');
+
+  // Poll for status
+  await pollChannelStatus(jobId);
+}
+
+// Poll channel processing status
+async function pollChannelStatus(jobId) {
+  let completed = false;
+
+  while (!completed) {
+    await sleep(2000);
+
+    const statusResponse = await fetch(`${API_BASE}/api/channel-status/${jobId}`);
+    const status = await statusResponse.json();
+
+    if (status.status === 'error') {
+      throw new Error(status.error || 'Channel processing failed');
+    }
+
+    if (status.status === 'fetching_videos') {
+      updateProgress(15, 'Fetching video list from channel...');
+    } else if (status.status === 'processing') {
+      const percent = status.total > 0
+        ? Math.min(90, 20 + Math.floor((status.processed + status.skipped + status.failed) / status.total * 70))
+        : 20;
+      updateProgress(percent, `Processing ${status.processed + status.skipped + status.failed + 1}/${status.total}: ${status.currentVideo || '...'}`);
+    } else if (status.status === 'completed') {
+      completed = true;
+      updateProgress(100, 'Complete!');
+      await sleep(500);
+      hideProgress();
+      showChannelResults(status);
+      loadHistory();
+      form.reset();
+    }
+  }
+}
+
 // New analysis button
 newAnalysisBtn.addEventListener('click', () => {
   hideResults();
+  hideChannelResults();
   form.scrollIntoView({ behavior: 'smooth' });
 });
 
@@ -199,6 +226,56 @@ function showResults(data) {
 
 function hideResults() {
   resultsSection.style.display = 'none';
+}
+
+function showChannelResults(status) {
+  // Create channel results section if it doesn't exist
+  if (!channelResultsSection) {
+    channelResultsSection = document.createElement('div');
+    channelResultsSection.id = 'channelResultsSection';
+    channelResultsSection.className = 'results-section';
+    resultsSection.parentNode.insertBefore(channelResultsSection, resultsSection.nextSibling);
+  }
+
+  const successCount = status.results.filter(r => r.status === 'success').length;
+  const skippedCount = status.results.filter(r => r.status === 'skipped').length;
+  const failedCount = status.results.filter(r => r.status === 'failed').length;
+
+  channelResultsSection.innerHTML = `
+    <h2>Channel Processing Complete</h2>
+    <div class="result-card">
+      <div class="result-item">
+        <h3>Summary</h3>
+        <p><strong>${successCount}</strong> videos processed successfully</p>
+        <p><strong>${skippedCount}</strong> videos skipped (already processed or no subtitles)</p>
+        <p><strong>${failedCount}</strong> videos failed</p>
+      </div>
+      <div class="result-item">
+        <h3>Processed Videos</h3>
+        <div class="channel-results-list">
+          ${status.results.map(r => `
+            <div class="channel-result-item ${r.status}">
+              <span class="status-icon">${r.status === 'success' ? '✓' : r.status === 'skipped' ? '○' : '✗'}</span>
+              <span class="title">${escapeHtml(r.title)}</span>
+              ${r.summary ? `<p class="mini-summary">${escapeHtml(r.summary.substring(0, 100))}...</p>` : ''}
+              ${r.reason ? `<span class="reason">(${r.reason})</span>` : ''}
+              ${r.error ? `<span class="error-reason">(${r.error})</span>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+    <button onclick="hideChannelResults(); document.getElementById('podcastForm').scrollIntoView({behavior: 'smooth'});" class="secondary-btn">Process Another Channel</button>
+  `;
+
+  channelResultsSection.style.display = 'block';
+  channelResultsSection.scrollIntoView({ behavior: 'smooth' });
+}
+
+function hideChannelResults() {
+  if (channelResultsSection) {
+    channelResultsSection.style.display = 'none';
+  }
 }
 
 async function loadHistory() {
