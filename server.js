@@ -130,11 +130,19 @@ async function getYoutubeInfo(youtubeUrl) {
 }
 
 // Download subtitles from YouTube using yt-dlp
-async function downloadSubtitles(youtubeUrl, videoId) {
+async function downloadSubtitles(youtubeUrl, videoId, language = 'en') {
   const outputPath = path.join(TEMP_DIR, videoId);
 
+  // Map language codes to yt-dlp subtitle language patterns
+  const langPatterns = {
+    'en': 'en.*,en',
+    'fr': 'fr.*,fr'
+  };
+  const subLang = langPatterns[language] || `${language}.*,${language}`;
+
   try {
-    const cmd = `yt-dlp --skip-download --write-auto-subs --sub-lang "en.*,en" --sub-format vtt -o "${outputPath}" --no-playlist "${youtubeUrl}"`;
+    // First try to get subtitles in the requested language
+    const cmd = `yt-dlp --skip-download --write-auto-subs --sub-lang "${subLang}" --sub-format vtt -o "${outputPath}" --no-playlist "${youtubeUrl}"`;
     await execPromise(cmd, { timeout: 60000 });
 
     const files = fs.readdirSync(TEMP_DIR).filter(f => f.startsWith(videoId) && f.endsWith('.vtt'));
@@ -146,7 +154,7 @@ async function downloadSubtitles(youtubeUrl, videoId) {
       return parseVTT(vttContent);
     }
 
-    // Try any language
+    // Try any language as fallback
     const cmd2 = `yt-dlp --skip-download --write-auto-subs --sub-format vtt -o "${outputPath}" --no-playlist "${youtubeUrl}"`;
     await execPromise(cmd2, { timeout: 60000 });
 
@@ -216,12 +224,19 @@ async function processVideo(url, videoId, skipExisting = true, language = 'en') 
   // Get video info
   const ytInfo = await getYoutubeInfo(url);
 
-  // Download subtitles
-  const transcript = await downloadSubtitles(url, videoId);
+  // Download subtitles in the selected language
+  const transcript = await downloadSubtitles(url, videoId, language);
 
   if (!transcript || transcript.length < 50) {
     return { skipped: true, reason: 'no_subtitles' };
   }
+
+  // Language-specific instructions for Gemini
+  const langInstructions = {
+    'en': 'Respond in English.',
+    'fr': 'Réponds en français.'
+  };
+  const langInstruction = langInstructions[language] || 'Respond in the same language as the transcript.';
 
   // Analyze with Gemini
   const prompt = `Analyze this YouTube video transcript and provide the following in JSON format:
@@ -229,6 +244,8 @@ async function processVideo(url, videoId, skipExisting = true, language = 'en') 
   "summary": "A concise 2-3 sentence summary of the video content",
   "best_part": "The most interesting, insightful, or valuable quote or segment (1-3 sentences, exact quote from the transcript)"
 }
+
+IMPORTANT: ${langInstruction}
 
 Video Title: ${ytInfo.title}
 Channel: ${ytInfo.channel}
@@ -767,7 +784,16 @@ async function processAiAsync(jobId) {
         // Extract keywords using Gemini
         const textToAnalyze = `Title: ${video.episode_title}\nChannel: ${video.podcast_name}\nSummary: ${video.summary || ''}\n\nTranscript excerpt: ${(video.transcript || '').substring(0, 10000)}`;
 
+        // Language-specific instructions for keywords
+        const langInstructions = {
+          'en': 'Extract keywords in English.',
+          'fr': 'Extrais les mots-clés en français.'
+        };
+        const langInstruction = langInstructions[videoLang] || 'Extract keywords in the same language as the content.';
+
         const prompt = `Extract 5-10 main keywords/topics from this video content. Return ONLY a JSON array of lowercase keywords, no explanations. Focus on main subjects, people mentioned, concepts discussed.
+
+IMPORTANT: ${langInstruction}
 
 Example output: ["artificial intelligence", "elon musk", "space exploration", "neural networks"]
 
