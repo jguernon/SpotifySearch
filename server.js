@@ -9,7 +9,6 @@ const util = require('util');
 const execPromise = util.promisify(exec);
 const pool = require('./db');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { GoogleAIFileManager } = require('@google/generative-ai/server');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -19,7 +18,6 @@ if (!process.env.GEMINI_API_KEY) {
   console.error('WARNING: GEMINI_API_KEY environment variable is not set');
 }
 
-const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
@@ -28,7 +26,7 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Temp directory for audio files
+// Temp directory for subtitle files
 const TEMP_DIR = path.join(__dirname, 'temp');
 if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
@@ -45,37 +43,6 @@ function extractYoutubeId(url) {
     if (match) return match[1];
   }
   return null;
-}
-
-// Download audio from YouTube using yt-dlp
-async function downloadFromYoutube(youtubeUrl, outputPath) {
-  console.log('Downloading from YouTube with yt-dlp...');
-
-  const outputTemplate = outputPath.replace(/\.[^/.]+$/, '');
-
-  try {
-    const cmd = `yt-dlp -x --audio-format mp3 --audio-quality 9 -o "${outputTemplate}.%(ext)s" --no-playlist "${youtubeUrl}"`;
-    console.log('Running:', cmd);
-
-    await execPromise(cmd, { timeout: 900000 });
-
-    const expectedPath = `${outputTemplate}.mp3`;
-    if (fs.existsSync(expectedPath)) {
-      return expectedPath;
-    }
-
-    const dir = path.dirname(outputPath);
-    const base = path.basename(outputTemplate);
-    const files = fs.readdirSync(dir).filter(f => f.startsWith(base));
-    if (files.length > 0) {
-      return path.join(dir, files[0]);
-    }
-
-    throw new Error('Downloaded file not found');
-  } catch (error) {
-    console.error('yt-dlp error:', error.message);
-    throw new Error(`Failed to download from YouTube: ${error.message}`);
-  }
 }
 
 // Get YouTube video info
@@ -97,40 +64,92 @@ async function getYoutubeInfo(youtubeUrl) {
   }
 }
 
-// Upload file to Gemini and wait for processing
-async function uploadToGemini(filePath, mimeType) {
-  console.log('Uploading file to Gemini File API...');
+// Download subtitles from YouTube using yt-dlp
+async function downloadSubtitles(youtubeUrl, videoId) {
+  console.log('Downloading subtitles from YouTube...');
 
-  const uploadResult = await fileManager.uploadFile(filePath, {
-    mimeType: mimeType,
-    displayName: path.basename(filePath),
-  });
+  const outputPath = path.join(TEMP_DIR, videoId);
 
-  console.log(`Uploaded file: ${uploadResult.file.name}`);
+  try {
+    // Try to get auto-generated subtitles in English, then any language
+    const cmd = `yt-dlp --skip-download --write-auto-subs --sub-lang "en.*,en" --sub-format vtt -o "${outputPath}" --no-playlist "${youtubeUrl}"`;
+    console.log('Running:', cmd);
 
-  let file = uploadResult.file;
-  while (file.state === 'PROCESSING') {
-    console.log('Waiting for file processing...');
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    file = await fileManager.getFile(file.name);
+    await execPromise(cmd, { timeout: 60000 });
+
+    // Find the downloaded subtitle file
+    const files = fs.readdirSync(TEMP_DIR).filter(f => f.startsWith(videoId) && f.endsWith('.vtt'));
+
+    if (files.length > 0) {
+      const subtitlePath = path.join(TEMP_DIR, files[0]);
+      const vttContent = fs.readFileSync(subtitlePath, 'utf8');
+
+      // Clean up file
+      fs.unlinkSync(subtitlePath);
+
+      // Parse VTT to plain text
+      const transcript = parseVTT(vttContent);
+      return transcript;
+    }
+
+    // If no English subs, try any available subs
+    const cmd2 = `yt-dlp --skip-download --write-auto-subs --sub-format vtt -o "${outputPath}" --no-playlist "${youtubeUrl}"`;
+    await execPromise(cmd2, { timeout: 60000 });
+
+    const files2 = fs.readdirSync(TEMP_DIR).filter(f => f.startsWith(videoId) && f.endsWith('.vtt'));
+
+    if (files2.length > 0) {
+      const subtitlePath = path.join(TEMP_DIR, files2[0]);
+      const vttContent = fs.readFileSync(subtitlePath, 'utf8');
+      fs.unlinkSync(subtitlePath);
+      return parseVTT(vttContent);
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Subtitle download error:', error.message);
+
+    // Clean up any partial files
+    const files = fs.readdirSync(TEMP_DIR).filter(f => f.startsWith(videoId));
+    files.forEach(f => {
+      try { fs.unlinkSync(path.join(TEMP_DIR, f)); } catch (e) {}
+    });
+
+    return null;
   }
-
-  if (file.state === 'FAILED') {
-    throw new Error('File processing failed');
-  }
-
-  console.log('File ready for use');
-  return file;
 }
 
-// Delete file from Gemini after use
-async function deleteFromGemini(fileName) {
-  try {
-    await fileManager.deleteFile(fileName);
-    console.log('Deleted file from Gemini:', fileName);
-  } catch (error) {
-    console.error('Failed to delete file from Gemini:', error.message);
+// Parse VTT subtitle format to plain text (remove duplicates from auto-generated subs)
+function parseVTT(vttContent) {
+  const lines = vttContent.split('\n');
+  const textLines = [];
+  let lastLine = '';
+
+  for (const line of lines) {
+    // Skip header, timestamps, and empty lines
+    if (line.startsWith('WEBVTT') ||
+        line.startsWith('Kind:') ||
+        line.startsWith('Language:') ||
+        line.includes('-->') ||
+        line.trim() === '' ||
+        /^\d+$/.test(line.trim())) {
+      continue;
+    }
+
+    // Remove VTT tags like <c>, </c>, <00:00:00.000>
+    let cleanLine = line
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .trim();
+
+    // Skip if same as last line (auto-generated subs have lots of duplicates)
+    if (cleanLine && cleanLine !== lastLine) {
+      textLines.push(cleanLine);
+      lastLine = cleanLine;
+    }
   }
+
+  return textLines.join(' ').replace(/\s+/g, ' ').trim();
 }
 
 // Check if URL already exists
@@ -157,11 +176,8 @@ app.get('/api/check', async (req, res) => {
   }
 });
 
-// Process YouTube URL - download audio, transcribe with Gemini
+// Process YouTube URL - get subtitles, analyze with Gemini
 app.post('/api/process', async (req, res) => {
-  let audioPath = null;
-  let geminiFile = null;
-
   try {
     const { url } = req.body;
 
@@ -196,55 +212,37 @@ app.post('/api/process', async (req, res) => {
     console.log('Getting YouTube video info...');
     const ytInfo = await getYoutubeInfo(url);
     console.log('Video title:', ytInfo.title);
+    console.log('Channel:', ytInfo.channel);
 
-    // Download audio
-    audioPath = path.join(TEMP_DIR, `${videoId}.mp3`);
-    await downloadFromYoutube(url, audioPath);
+    // Download subtitles
+    console.log('Fetching subtitles...');
+    const transcript = await downloadSubtitles(url, videoId);
 
-    // Verify file exists
-    if (!fs.existsSync(audioPath)) {
-      return res.status(500).json({ error: 'Failed to download audio file' });
-    }
-
-    const stats = fs.statSync(audioPath);
-    const fileSizeMB = stats.size / (1024 * 1024);
-    console.log(`Audio file size: ${fileSizeMB.toFixed(2)} MB`);
-
-    if (fileSizeMB > 100) {
-      fs.unlinkSync(audioPath);
-      return res.status(413).json({
-        error: 'Audio file is too large. Maximum size is 100MB.',
-        size: `${fileSizeMB.toFixed(2)} MB`
+    if (!transcript || transcript.length < 50) {
+      return res.status(404).json({
+        error: 'No subtitles available for this video. The video may not have captions enabled.',
+        suggestion: 'Try a different video that has subtitles/captions available.'
       });
     }
 
-    // Upload to Gemini File API
-    console.log('Uploading to Gemini...');
-    geminiFile = await uploadToGemini(audioPath, 'audio/mp3');
+    console.log(`Transcript length: ${transcript.length} characters`);
 
-    console.log('Transcribing with Gemini...');
+    // Use Gemini to analyze the transcript
+    console.log('Analyzing transcript with Gemini...');
 
-    const prompt = `Listen to this audio and provide the following in JSON format:
+    const prompt = `Analyze this YouTube video transcript and provide the following in JSON format:
 {
-  "podcast_name": "The name/title of the podcast or channel",
-  "episode_title": "The title of this episode/video",
-  "transcript": "The full transcript of the audio",
-  "summary": "A concise 2-3 sentence summary",
-  "best_part": "The most interesting quote or segment (1-3 sentences)"
+  "summary": "A concise 2-3 sentence summary of the video content",
+  "best_part": "The most interesting, insightful, or valuable quote or segment (1-3 sentences, exact quote from the transcript)"
 }
 
-Transcribe the entire audio. If you cannot determine names, use "Unknown".`;
+Video Title: ${ytInfo.title}
+Channel: ${ytInfo.channel}
 
-    const result = await model.generateContent([
-      prompt,
-      {
-        fileData: {
-          fileUri: geminiFile.uri,
-          mimeType: geminiFile.mimeType,
-        },
-      },
-    ]);
+Transcript:
+${transcript.substring(0, 30000)}`;
 
+    const result = await model.generateContent(prompt);
     const response = result.response;
     const text = response.text();
 
@@ -262,20 +260,9 @@ Transcribe the entire audio. If you cannot determine names, use "Unknown".`;
     } catch (parseError) {
       console.error('Parse error:', parseError);
       analysis = {
-        podcast_name: ytInfo.channel,
-        episode_title: ytInfo.title,
-        transcript: text,
-        summary: 'Could not parse summary',
+        summary: 'Could not generate summary',
         best_part: 'Could not extract best part'
       };
-    }
-
-    // Use YouTube metadata as fallback
-    if (!analysis.podcast_name || analysis.podcast_name === 'Unknown') {
-      analysis.podcast_name = ytInfo.channel;
-    }
-    if (!analysis.episode_title || analysis.episode_title === 'Unknown') {
-      analysis.episode_title = ytInfo.title;
     }
 
     // Save to database
@@ -284,28 +271,20 @@ Transcribe the entire audio. If you cannot determine names, use "Unknown".`;
        VALUES (?, ?, ?, ?, ?, ?)`,
       [
         url,
-        analysis.podcast_name || 'Unknown',
-        analysis.episode_title || 'Unknown',
-        analysis.transcript || '',
+        ytInfo.channel || 'Unknown',
+        ytInfo.title || 'Unknown',
+        transcript,
         analysis.best_part || '',
         analysis.summary || ''
       ]
     );
 
-    // Clean up
-    if (audioPath && fs.existsSync(audioPath)) {
-      fs.unlinkSync(audioPath);
-    }
-    if (geminiFile) {
-      await deleteFromGemini(geminiFile.name);
-    }
-
     res.json({
       success: true,
       id: insertResult.insertId,
       data: {
-        podcast_name: analysis.podcast_name,
-        episode_title: analysis.episode_title,
+        podcast_name: ytInfo.channel,
+        episode_title: ytInfo.title,
         summary: analysis.summary,
         best_part: analysis.best_part
       }
@@ -313,14 +292,6 @@ Transcribe the entire audio. If you cannot determine names, use "Unknown".`;
 
   } catch (error) {
     console.error('Process error:', error);
-
-    if (audioPath && fs.existsSync(audioPath)) {
-      fs.unlinkSync(audioPath);
-    }
-    if (geminiFile) {
-      await deleteFromGemini(geminiFile.name);
-    }
-
     res.status(500).json({ error: 'Failed to process: ' + error.message });
   }
 });
@@ -364,5 +335,5 @@ app.get('/health', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
-  console.log('Accepts YouTube URLs only');
+  console.log('Accepts YouTube URLs - fetches subtitles directly (no audio download)');
 });
