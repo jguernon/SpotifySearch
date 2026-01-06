@@ -8,7 +8,8 @@ const { exec } = require('child_process');
 const util = require('util');
 const execPromise = util.promisify(exec);
 const pool = require('./db');
-const { GoogleGenerativeAI, GoogleAIFileManager } = require('@google/generative-ai/server');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleAIFileManager } = require('@google/generative-ai/server');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
