@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Search - YouTube Transcriber</title>
+  <title>Podcast Search</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="search.css">
 </head>
 <body>
   <div class="container wide">
     <header>
-      <h1>Video Search</h1>
+      <h1>Podcast Search</h1>
       <p class="subtitle">Search through transcripts and find relevant content</p>
       <nav class="nav-links">
         <a href="index.html">Home</a>
@@ -27,7 +27,7 @@
             <input
               type="text"
               id="searchInput"
-              placeholder="Search videos... (e.g., UFO, AI, health)"
+              placeholder="Search podcasts... (e.g., UFO, AI, health)"
               autocomplete="off"
             >
             <button type="submit" id="searchBtn">
@@ -53,15 +53,6 @@
           <p id="resultsCount" class="results-count"></p>
         </div>
         <div id="resultsList" class="results-list"></div>
-      </section>
-
-      <!-- All Videos (shown when no search) -->
-      <section id="allVideosSection" class="all-videos-section">
-        <h2>Recent Videos</h2>
-        <div id="allVideosList" class="videos-list">
-          <p class="loading-text">Loading videos...</p>
-        </div>
-        <button id="loadMoreBtn" class="secondary-btn" style="display: none;">Load More</button>
       </section>
     </main>
 

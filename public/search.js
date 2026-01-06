@@ -6,18 +6,12 @@ const tagsCloud = document.getElementById('tagsCloud');
 const resultsSection = document.getElementById('resultsSection');
 const resultsList = document.getElementById('resultsList');
 const resultsCount = document.getElementById('resultsCount');
-const allVideosSection = document.getElementById('allVideosSection');
-const allVideosList = document.getElementById('allVideosList');
-const loadMoreBtn = document.getElementById('loadMoreBtn');
 
 const API_BASE = window.location.origin;
-let currentPage = 0;
-const PAGE_SIZE = 20;
 
 // Load data on page load
 document.addEventListener('DOMContentLoaded', () => {
   loadPopularTags();
-  loadRecentVideos();
 
   // Check for search query in URL
   const params = new URLSearchParams(window.location.search);
@@ -39,13 +33,7 @@ searchForm.addEventListener('submit', (e) => {
   }
 });
 
-// Load more button
-loadMoreBtn.addEventListener('click', () => {
-  currentPage++;
-  loadRecentVideos(true);
-});
-
-// Load popular tags
+// Load popular tags (no size highlighting)
 async function loadPopularTags() {
   tagsCloud.innerHTML = '<p class="loading-text">Loading popular topics...</p>';
 
@@ -54,23 +42,14 @@ async function loadPopularTags() {
     const keywords = await response.json();
 
     if (keywords.length === 0) {
-      tagsCloud.innerHTML = '<p class="empty-state">No keywords yet. Process videos with AI first!</p>';
+      tagsCloud.innerHTML = '<p class="empty-state">No keywords yet. Process content with AI first!</p>';
       return;
     }
 
-    // Find max count for sizing
-    const maxCount = Math.max(...keywords.map(k => k.count));
-
     tagsCloud.innerHTML = keywords.map(keyword => {
-      const ratio = keyword.count / maxCount;
-      let sizeClass = '';
-      if (ratio > 0.7) sizeClass = 'large';
-      else if (ratio > 0.4) sizeClass = 'medium';
-
       return `
-        <a href="#" class="tag ${sizeClass}" onclick="searchByTag('${escapeHtml(keyword.keyword)}'); return false;">
+        <a href="#" class="tag" onclick="searchByTag('${escapeHtml(keyword.keyword)}'); return false;">
           ${escapeHtml(keyword.keyword)}
-          <span class="tag-count">(${keyword.count})</span>
         </a>
       `;
     }).join('');
@@ -92,7 +71,6 @@ function searchByTag(tag) {
 async function performSearch(query) {
   setLoading(true);
   resultsSection.style.display = 'block';
-  allVideosSection.style.display = 'none';
   resultsList.innerHTML = '<p class="loading-text">Searching...</p>';
 
   try {
@@ -109,7 +87,7 @@ async function performSearch(query) {
       resultsCount.textContent = '0 results';
     } else {
       resultsCount.textContent = `${results.length} result${results.length !== 1 ? 's' : ''}`;
-      resultsList.innerHTML = results.map(video => createVideoCard(video, query)).join('');
+      resultsList.innerHTML = results.map(episode => createEpisodeCard(episode, query)).join('');
     }
 
   } catch (error) {
@@ -120,47 +98,12 @@ async function performSearch(query) {
   }
 }
 
-// Load recent videos
-async function loadRecentVideos(append = false) {
-  if (!append) {
-    currentPage = 0;
-    allVideosList.innerHTML = '<p class="loading-text">Loading videos...</p>';
-  }
+// Create episode card HTML
+function createEpisodeCard(episode, searchQuery = null) {
+  const keywords = episode.keywords ? episode.keywords.split(',').slice(0, 5) : [];
+  const hasSnippets = episode.context_snippets && episode.context_snippets.length > 0;
 
-  try {
-    const response = await fetch(`${API_BASE}/api/podcasts?limit=${PAGE_SIZE}&offset=${currentPage * PAGE_SIZE}`);
-    const videos = await response.json();
-
-    if (videos.length === 0 && currentPage === 0) {
-      allVideosList.innerHTML = '<p class="empty-state">No videos yet. Start by processing some YouTube videos!</p>';
-      loadMoreBtn.style.display = 'none';
-      return;
-    }
-
-    const html = videos.map(video => createVideoCard(video)).join('');
-
-    if (append) {
-      allVideosList.innerHTML += html;
-    } else {
-      allVideosList.innerHTML = html;
-    }
-
-    loadMoreBtn.style.display = videos.length === PAGE_SIZE ? 'block' : 'none';
-
-  } catch (error) {
-    if (!append) {
-      allVideosList.innerHTML = '<p class="loading-text">Failed to load videos</p>';
-    }
-    console.error('Failed to load videos:', error);
-  }
-}
-
-// Create video card HTML
-function createVideoCard(video, searchQuery = null) {
-  const keywords = video.keywords ? video.keywords.split(',').slice(0, 5) : [];
-  const hasSnippets = video.context_snippets && video.context_snippets.length > 0;
-
-  let summary = video.summary || 'No summary available';
+  let summary = episode.summary || 'No summary available';
 
   // Highlight search terms in summary if provided
   if (searchQuery) {
@@ -179,7 +122,7 @@ function createVideoCard(video, searchQuery = null) {
     snippetsHtml = `
       <div class="context-snippets">
         <p class="snippets-label">Found in transcript:</p>
-        ${video.context_snippets.map(snippet => {
+        ${episode.context_snippets.map(snippet => {
           let text = escapeHtml(snippet.text);
           // Highlight the matched term
           if (snippet.matchedTerm) {
@@ -193,44 +136,41 @@ function createVideoCard(video, searchQuery = null) {
   }
 
   // Generate thumbnail HTML
-  const thumbnailHtml = video.thumbnail_url
-    ? `<img src="${video.thumbnail_url}" alt="${escapeHtml(video.episode_title)}" class="video-thumbnail" loading="lazy">`
-    : `<div class="video-thumbnail placeholder"><span>No thumbnail</span></div>`;
+  const thumbnailHtml = episode.thumbnail_url
+    ? `<img src="${episode.thumbnail_url}" alt="${escapeHtml(episode.episode_title)}" class="episode-thumbnail" loading="lazy">`
+    : `<div class="episode-thumbnail placeholder"><span>No thumbnail</span></div>`;
 
   // Generate Spotify search URL
-  const spotifySearchUrl = video.spotify_search_url || `https://open.spotify.com/search/${encodeURIComponent(video.episode_title || '')}`;
+  const spotifySearchUrl = episode.spotify_search_url || `https://open.spotify.com/search/${encodeURIComponent(episode.episode_title || '')}`;
 
   return `
-    <div class="video-card">
-      <div class="video-card-content">
-        <div class="video-thumbnail-wrapper">
+    <div class="episode-card">
+      <div class="episode-card-content">
+        <div class="episode-thumbnail-wrapper">
           ${thumbnailHtml}
         </div>
-        <div class="video-details">
-          <div class="video-card-header">
-            <h3>${escapeHtml(video.episode_title || 'Unknown Title')}</h3>
-            ${video.relevance_score ? `<span class="relevance-badge">${Math.round(video.relevance_score)}% match</span>` : ''}
+        <div class="episode-details">
+          <div class="episode-card-header">
+            <h3>${escapeHtml(episode.episode_title || 'Unknown Title')}</h3>
+            ${episode.relevance_score ? `<span class="relevance-badge">${Math.round(episode.relevance_score)}% match</span>` : ''}
           </div>
-          <p class="channel-name">${escapeHtml(video.podcast_name || 'Unknown Channel')}</p>
           <p class="summary">${summary}</p>
           ${snippetsHtml}
           ${keywords.length > 0 ? `
             <div class="keywords">
               ${keywords.map(k => {
-                const isMatch = searchQuery && searchQuery.toLowerCase().includes(k.trim().toLowerCase());
-                return `<span class="keyword ${isMatch ? 'match' : ''}">${escapeHtml(k.trim())}</span>`;
+                return `<span class="keyword">${escapeHtml(k.trim())}</span>`;
               }).join('')}
             </div>
           ` : ''}
-          <div class="video-links">
-            <a href="${video.spotify_url}" target="_blank" rel="noopener" class="video-link youtube">
+          <div class="episode-links">
+            <a href="${episode.spotify_url}" target="_blank" rel="noopener" class="episode-link youtube">
               <span class="link-icon">&#9658;</span> YouTube
             </a>
-            <a href="${spotifySearchUrl}" target="_blank" rel="noopener" class="video-link spotify">
+            <a href="${spotifySearchUrl}" target="_blank" rel="noopener" class="episode-link spotify">
               <span class="link-icon">&#9835;</span> Search on Spotify
             </a>
           </div>
-          <p class="date">Processed: ${new Date(video.processed_at).toLocaleDateString()}</p>
         </div>
       </div>
     </div>
@@ -255,11 +195,10 @@ function escapeRegex(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// Clear search and show all videos
+// Clear search
 function clearSearch() {
   searchInput.value = '';
   resultsSection.style.display = 'none';
-  allVideosSection.style.display = 'block';
   window.history.pushState({}, '', window.location.pathname);
 }
 

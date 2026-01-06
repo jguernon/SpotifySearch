@@ -124,24 +124,6 @@
   color: #1db954;
 }
 
-.tag.large {
-  font-size: 1.1rem;
-  padding: 10px 20px;
-  background: rgba(29, 185, 84, 0.15);
-  border-color: rgba(29, 185, 84, 0.3);
-  color: #1db954;
-}
-
-.tag.medium {
-  font-size: 1rem;
-  padding: 9px 18px;
-}
-
-.tag-count {
-  font-size: 0.75em;
-  opacity: 0.7;
-  margin-left: 5px;
-}
 
 /* Results Section */
 .results-section {
@@ -171,8 +153,8 @@
   gap: 15px;
 }
 
-/* Video Card */
-.video-card {
+/* Episode Card */
+.episode-card {
   background: rgba(255, 255, 255, 0.05);
   border-radius: 12px;
   padding: 20px;
@@ -180,22 +162,22 @@
   transition: all 0.3s;
 }
 
-.video-card:hover {
+.episode-card:hover {
   border-color: rgba(29, 185, 84, 0.5);
   background: rgba(255, 255, 255, 0.08);
 }
 
-.video-card-content {
+.episode-card-content {
   display: flex;
   gap: 20px;
 }
 
-.video-thumbnail-wrapper {
+.episode-thumbnail-wrapper {
   flex-shrink: 0;
   width: 200px;
 }
 
-.video-thumbnail {
+.episode-thumbnail {
   width: 100%;
   height: 112px;
   object-fit: cover;
@@ -203,7 +185,7 @@
   background: rgba(255, 255, 255, 0.1);
 }
 
-.video-thumbnail.placeholder {
+.episode-thumbnail.placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -211,12 +193,12 @@
   font-size: 0.8rem;
 }
 
-.video-details {
+.episode-details {
   flex: 1;
   min-width: 0;
 }
 
-.video-card-header {
+.episode-card-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -224,7 +206,7 @@
   gap: 10px;
 }
 
-.video-card h3 {
+.episode-card h3 {
   color: #ffffff;
   font-size: 1.1rem;
   margin: 0;
@@ -242,13 +224,7 @@
   flex-shrink: 0;
 }
 
-.video-card .channel-name {
-  color: #1db954;
-  font-size: 0.9rem;
-  margin-bottom: 8px;
-}
-
-.video-card .summary {
+.episode-card .summary {
   color: #b3b3b3;
   font-size: 0.95rem;
   line-height: 1.6;
@@ -286,14 +262,14 @@
   margin-bottom: 0;
 }
 
-.video-card .keywords {
+.episode-card .keywords {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 12px;
 }
 
-.video-card .keyword {
+.episode-card .keyword {
   background: rgba(255, 255, 255, 0.1);
   padding: 4px 10px;
   border-radius: 12px;
@@ -301,20 +277,15 @@
   color: #888;
 }
 
-.video-card .keyword.match {
-  background: rgba(29, 185, 84, 0.2);
-  color: #1db954;
-}
-
-/* Video Links */
-.video-links {
+/* Episode Links */
+.episode-links {
   display: flex;
   gap: 12px;
   margin-bottom: 10px;
   flex-wrap: wrap;
 }
 
-.video-link {
+.episode-link {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -326,45 +297,28 @@
   transition: all 0.2s;
 }
 
-.video-link.youtube {
+.episode-link.youtube {
   background: rgba(255, 0, 0, 0.15);
   color: #ff4444;
   border: 1px solid rgba(255, 0, 0, 0.3);
 }
 
-.video-link.youtube:hover {
+.episode-link.youtube:hover {
   background: rgba(255, 0, 0, 0.25);
 }
 
-.video-link.spotify {
+.episode-link.spotify {
   background: rgba(29, 185, 84, 0.15);
   color: #1db954;
   border: 1px solid rgba(29, 185, 84, 0.3);
 }
 
-.video-link.spotify:hover {
+.episode-link.spotify:hover {
   background: rgba(29, 185, 84, 0.25);
 }
 
 .link-icon {
   font-size: 0.9rem;
-}
-
-.video-card .date {
-  color: #666;
-  font-size: 0.8rem;
-}
-
-/* All Videos Section */
-.all-videos-section h2 {
-  color: #ffffff;
-  margin-bottom: 20px;
-}
-
-.videos-list {
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
 }
 
 /* Highlight matched text */
@@ -397,19 +351,19 @@
     width: 100%;
   }
 
-  .video-card-content {
+  .episode-card-content {
     flex-direction: column;
   }
 
-  .video-thumbnail-wrapper {
+  .episode-thumbnail-wrapper {
     width: 100%;
   }
 
-  .video-thumbnail {
+  .episode-thumbnail {
     height: 180px;
   }
 
-  .video-card-header {
+  .episode-card-header {
     flex-direction: column;
     gap: 8px;
   }
@@ -418,11 +372,11 @@
     align-self: flex-start;
   }
 
-  .video-links {
+  .episode-links {
     flex-direction: column;
   }
 
-  .video-link {
+  .episode-link {
     justify-content: center;
   }
 }
