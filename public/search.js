@@ -158,49 +158,81 @@ async function loadRecentVideos(append = false) {
 // Create video card HTML
 function createVideoCard(video, searchQuery = null) {
   const keywords = video.keywords ? video.keywords.split(',').slice(0, 5) : [];
+  const hasSnippets = video.context_snippets && video.context_snippets.length > 0;
 
   let summary = video.summary || 'No summary available';
-  let bestPart = video.best_part || '';
 
-  // Highlight search terms if provided
+  // Highlight search terms in summary if provided
   if (searchQuery) {
     const terms = searchQuery.toLowerCase().split(/\s+/);
     terms.forEach(term => {
       if (term.length > 2) {
         const regex = new RegExp(`(${escapeRegex(term)})`, 'gi');
         summary = summary.replace(regex, '<span class="highlight">$1</span>');
-        bestPart = bestPart.replace(regex, '<span class="highlight">$1</span>');
       }
     });
   }
 
+  // Build context snippets HTML with highlighting
+  let snippetsHtml = '';
+  if (hasSnippets) {
+    snippetsHtml = `
+      <div class="context-snippets">
+        <p class="snippets-label">Found in transcript:</p>
+        ${video.context_snippets.map(snippet => {
+          let text = escapeHtml(snippet.text);
+          // Highlight the matched term
+          if (snippet.matchedTerm) {
+            const regex = new RegExp(`(${escapeRegex(snippet.matchedTerm)})`, 'gi');
+            text = text.replace(regex, '<span class="highlight">$1</span>');
+          }
+          return `<p class="snippet">"${text}"</p>`;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  // Generate thumbnail HTML
+  const thumbnailHtml = video.thumbnail_url
+    ? `<img src="${video.thumbnail_url}" alt="${escapeHtml(video.episode_title)}" class="video-thumbnail" loading="lazy">`
+    : `<div class="video-thumbnail placeholder"><span>No thumbnail</span></div>`;
+
+  // Generate Spotify search URL
+  const spotifySearchUrl = video.spotify_search_url || `https://open.spotify.com/search/${encodeURIComponent(video.episode_title || '')}`;
+
   return `
     <div class="video-card">
-      <div class="video-card-header">
-        <h3>
-          <a href="${video.spotify_url}" target="_blank" rel="noopener">
-            ${escapeHtml(video.episode_title || 'Unknown Title')}
-          </a>
-        </h3>
-        ${video.relevance_score ? `<span class="relevance-badge">${Math.round(video.relevance_score)}% match</span>` : ''}
+      <div class="video-card-content">
+        <div class="video-thumbnail-wrapper">
+          ${thumbnailHtml}
+        </div>
+        <div class="video-details">
+          <div class="video-card-header">
+            <h3>${escapeHtml(video.episode_title || 'Unknown Title')}</h3>
+            ${video.relevance_score ? `<span class="relevance-badge">${Math.round(video.relevance_score)}% match</span>` : ''}
+          </div>
+          <p class="channel-name">${escapeHtml(video.podcast_name || 'Unknown Channel')}</p>
+          <p class="summary">${summary}</p>
+          ${snippetsHtml}
+          ${keywords.length > 0 ? `
+            <div class="keywords">
+              ${keywords.map(k => {
+                const isMatch = searchQuery && searchQuery.toLowerCase().includes(k.trim().toLowerCase());
+                return `<span class="keyword ${isMatch ? 'match' : ''}">${escapeHtml(k.trim())}</span>`;
+              }).join('')}
+            </div>
+          ` : ''}
+          <div class="video-links">
+            <a href="${video.spotify_url}" target="_blank" rel="noopener" class="video-link youtube">
+              <span class="link-icon">&#9658;</span> YouTube
+            </a>
+            <a href="${spotifySearchUrl}" target="_blank" rel="noopener" class="video-link spotify">
+              <span class="link-icon">&#9835;</span> Search on Spotify
+            </a>
+          </div>
+          <p class="date">Processed: ${new Date(video.processed_at).toLocaleDateString()}</p>
+        </div>
       </div>
-      <p class="channel-name">${escapeHtml(video.podcast_name || 'Unknown Channel')}</p>
-      <p class="summary">${summary}</p>
-      ${bestPart ? `
-        <div class="best-part">
-          <p class="best-part-label">Best Part</p>
-          <p class="best-part-text">"${bestPart}"</p>
-        </div>
-      ` : ''}
-      ${keywords.length > 0 ? `
-        <div class="keywords">
-          ${keywords.map(k => {
-            const isMatch = searchQuery && searchQuery.toLowerCase().includes(k.trim().toLowerCase());
-            return `<span class="keyword ${isMatch ? 'match' : ''}">${escapeHtml(k.trim())}</span>`;
-          }).join('')}
-        </div>
-      ` : ''}
-      <p class="date">Processed: ${new Date(video.processed_at).toLocaleDateString()}</p>
     </div>
   `;
 }

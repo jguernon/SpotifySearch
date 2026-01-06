@@ -14,19 +14,122 @@ const errorText = document.getElementById('errorText');
 const successMessage = document.getElementById('successMessage');
 const successText = document.getElementById('successText');
 
+// Keyword management elements
+const keywordsList = document.getElementById('keywordsList');
+const blacklistList = document.getElementById('blacklistList');
+const keywordsManager = document.getElementById('keywordsManager');
+const blacklistManager = document.getElementById('blacklistManager');
+const toggleBlacklistBtn = document.getElementById('toggleBlacklistBtn');
+const blacklistSelectedBtn = document.getElementById('blacklistSelectedBtn');
+const selectAllBtn = document.getElementById('selectAllBtn');
+const deselectAllBtn = document.getElementById('deselectAllBtn');
+const addBlacklistInput = document.getElementById('addBlacklistInput');
+const addBlacklistBtn = document.getElementById('addBlacklistBtn');
+
 const API_BASE = window.location.origin;
+
+// Track selected keywords
+let selectedKeywords = new Set();
+let showingBlacklist = false;
 
 // Load data on page load
 document.addEventListener('DOMContentLoaded', () => {
   loadChannels();
   loadAiStatus();
+  loadKeywords();
 });
 
 // Refresh button
 refreshBtn.addEventListener('click', () => {
   loadChannels();
   loadAiStatus();
+  loadKeywords();
 });
+
+// Toggle blacklist view
+toggleBlacklistBtn.addEventListener('click', () => {
+  showingBlacklist = !showingBlacklist;
+  if (showingBlacklist) {
+    keywordsManager.style.display = 'none';
+    blacklistManager.style.display = 'block';
+    toggleBlacklistBtn.textContent = 'Show Keywords';
+    loadBlacklist();
+  } else {
+    keywordsManager.style.display = 'block';
+    blacklistManager.style.display = 'none';
+    toggleBlacklistBtn.textContent = 'Show Blacklist';
+    loadKeywords();
+  }
+});
+
+// Select all keywords
+selectAllBtn.addEventListener('click', () => {
+  document.querySelectorAll('.keyword-chip').forEach(chip => {
+    chip.classList.add('selected');
+    selectedKeywords.add(chip.dataset.keyword);
+  });
+  updateBlacklistButton();
+});
+
+// Deselect all keywords
+deselectAllBtn.addEventListener('click', () => {
+  document.querySelectorAll('.keyword-chip').forEach(chip => {
+    chip.classList.remove('selected');
+  });
+  selectedKeywords.clear();
+  updateBlacklistButton();
+});
+
+// Blacklist selected keywords
+blacklistSelectedBtn.addEventListener('click', async () => {
+  if (selectedKeywords.size === 0) return;
+
+  try {
+    const response = await fetch(`${API_BASE}/api/keyword-blacklist/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keywords: Array.from(selectedKeywords) })
+    });
+
+    if (!response.ok) throw new Error('Failed to blacklist keywords');
+
+    showSuccess(`Blacklisted ${selectedKeywords.size} keywords`);
+    selectedKeywords.clear();
+    updateBlacklistButton();
+    loadKeywords();
+    loadAiStatus();
+  } catch (error) {
+    showError('Failed to blacklist keywords: ' + error.message);
+  }
+});
+
+// Add keyword to blacklist
+addBlacklistBtn.addEventListener('click', addToBlacklist);
+addBlacklistInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') addToBlacklist();
+});
+
+async function addToBlacklist() {
+  const keyword = addBlacklistInput.value.trim();
+  if (!keyword) return;
+
+  try {
+    const response = await fetch(`${API_BASE}/api/keyword-blacklist`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keyword })
+    });
+
+    if (!response.ok) throw new Error('Failed to add to blacklist');
+
+    addBlacklistInput.value = '';
+    showSuccess(`Added "${keyword}" to blacklist`);
+    loadBlacklist();
+    loadAiStatus();
+  } catch (error) {
+    showError('Failed to add to blacklist: ' + error.message);
+  }
+}
 
 // Process AI button
 processAiBtn.addEventListener('click', startAiProcessing);
@@ -315,4 +418,95 @@ function escapeHtml(text) {
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ============================================
+// KEYWORD MANAGEMENT
+// ============================================
+
+// Load all keywords
+async function loadKeywords() {
+  keywordsList.innerHTML = '<p class="loading-text">Loading keywords...</p>';
+  selectedKeywords.clear();
+  updateBlacklistButton();
+
+  try {
+    const response = await fetch(`${API_BASE}/api/keywords?limit=200`);
+    const keywords = await response.json();
+
+    if (keywords.length === 0) {
+      keywordsList.innerHTML = '<p class="empty-state">No keywords yet. Run AI processing first!</p>';
+      return;
+    }
+
+    keywordsList.innerHTML = keywords.map(k => `
+      <div class="keyword-chip" data-keyword="${escapeHtml(k.keyword)}" onclick="toggleKeyword(this)">
+        <span>${escapeHtml(k.keyword)}</span>
+        <span class="count">(${k.count})</span>
+      </div>
+    `).join('');
+  } catch (error) {
+    keywordsList.innerHTML = '<p class="loading-text">Failed to load keywords</p>';
+  }
+}
+
+// Load blacklisted keywords
+async function loadBlacklist() {
+  blacklistList.innerHTML = '<p class="loading-text">Loading blacklist...</p>';
+
+  try {
+    const response = await fetch(`${API_BASE}/api/keyword-blacklist`);
+    const keywords = await response.json();
+
+    if (keywords.length === 0) {
+      blacklistList.innerHTML = '<p class="empty-state">No blacklisted keywords</p>';
+      return;
+    }
+
+    blacklistList.innerHTML = keywords.map(k => `
+      <div class="keyword-chip">
+        <span>${escapeHtml(k.keyword)}</span>
+        <button class="remove-btn" onclick="removeFromBlacklist('${escapeHtml(k.keyword)}')" title="Remove from blacklist">x</button>
+      </div>
+    `).join('');
+  } catch (error) {
+    blacklistList.innerHTML = '<p class="loading-text">Failed to load blacklist</p>';
+  }
+}
+
+// Toggle keyword selection
+function toggleKeyword(chip) {
+  const keyword = chip.dataset.keyword;
+  if (chip.classList.contains('selected')) {
+    chip.classList.remove('selected');
+    selectedKeywords.delete(keyword);
+  } else {
+    chip.classList.add('selected');
+    selectedKeywords.add(keyword);
+  }
+  updateBlacklistButton();
+}
+
+// Update blacklist button text
+function updateBlacklistButton() {
+  const count = selectedKeywords.size;
+  blacklistSelectedBtn.textContent = `Blacklist Selected (${count})`;
+  blacklistSelectedBtn.disabled = count === 0;
+}
+
+// Remove keyword from blacklist
+async function removeFromBlacklist(keyword) {
+  try {
+    const response = await fetch(`${API_BASE}/api/keyword-blacklist/${encodeURIComponent(keyword)}`, {
+      method: 'DELETE'
+    });
+
+    if (!response.ok) throw new Error('Failed to remove from blacklist');
+
+    showSuccess(`Removed "${keyword}" from blacklist`);
+    loadBlacklist();
+    loadAiStatus();
+  } catch (error) {
+    showError('Failed to remove from blacklist: ' + error.message);
+  }
 }

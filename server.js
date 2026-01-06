@@ -107,14 +107,25 @@ async function getYoutubeInfo(youtubeUrl) {
       { timeout: 30000 }
     );
     const info = JSON.parse(stdout);
+
+    // Get best thumbnail
+    let thumbnail = null;
+    if (info.thumbnail) {
+      thumbnail = info.thumbnail;
+    } else if (info.thumbnails && info.thumbnails.length > 0) {
+      // Get highest quality thumbnail
+      thumbnail = info.thumbnails[info.thumbnails.length - 1].url;
+    }
+
     return {
       title: info.title || 'Unknown',
       channel: info.uploader || info.channel || 'Unknown',
-      duration: info.duration || 0
+      duration: info.duration || 0,
+      thumbnail: thumbnail
     };
   } catch (error) {
     console.error('Could not get YouTube info:', error.message);
-    return { title: 'Unknown', channel: 'Unknown', duration: 0 };
+    return { title: 'Unknown', channel: 'Unknown', duration: 0, thumbnail: null };
   }
 }
 
@@ -244,17 +255,18 @@ ${transcript.substring(0, 30000)}`;
     };
   }
 
-  // Save to database
+  // Save to database with thumbnail
   const [insertResult] = await pool.execute(
-    `INSERT INTO podcasts (spotify_url, podcast_name, episode_title, transcript, best_part, summary)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO podcasts (spotify_url, podcast_name, episode_title, transcript, best_part, summary, thumbnail_url)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       url,
       ytInfo.channel || 'Unknown',
       ytInfo.title || 'Unknown',
       transcript,
       analysis.best_part || '',
-      analysis.summary || ''
+      analysis.summary || '',
+      ytInfo.thumbnail || null
     ]
   );
 
@@ -263,7 +275,8 @@ ${transcript.substring(0, 30000)}`;
     id: insertResult.insertId,
     title: ytInfo.title,
     channel: ytInfo.channel,
-    summary: analysis.summary
+    summary: analysis.summary,
+    thumbnail: ytInfo.thumbnail
   };
 }
 
@@ -711,6 +724,10 @@ async function processAiAsync(jobId) {
   const job = aiJobs.get(jobId);
 
   try {
+    // Get blacklisted keywords
+    const [blacklistRows] = await pool.execute('SELECT keyword FROM keyword_blacklist');
+    const blacklist = new Set(blacklistRows.map(r => r.keyword.toLowerCase()));
+
     // Get all videos that haven't been AI processed or need reprocessing
     const [videos] = await pool.execute(`
       SELECT id, episode_title, podcast_name, summary, transcript
@@ -722,7 +739,7 @@ async function processAiAsync(jobId) {
     job.total = videos.length;
     job.status = 'processing';
 
-    console.log(`[AI-${jobId}] Processing ${videos.length} videos for keywords`);
+    console.log(`[AI-${jobId}] Processing ${videos.length} videos for keywords (${blacklist.size} blacklisted terms)`);
 
     const allKeywords = new Map();
 
@@ -754,10 +771,11 @@ ${textToAnalyze}`;
           keywords = text.split(',').map(k => k.trim().toLowerCase().replace(/["\[\]]/g, '')).filter(k => k.length > 2);
         }
 
-        // Clean and limit keywords
+        // Clean, filter blacklisted, and limit keywords
         keywords = keywords
           .map(k => k.toLowerCase().trim())
           .filter(k => k.length > 2 && k.length < 50)
+          .filter(k => !blacklist.has(k))
           .slice(0, 10);
 
         // Update video with keywords
@@ -767,7 +785,7 @@ ${textToAnalyze}`;
           [keywordsStr, video.id]
         );
 
-        // Track keyword counts
+        // Track keyword counts (only non-blacklisted)
         keywords.forEach(k => {
           allKeywords.set(k, (allKeywords.get(k) || 0) + 1);
         });
@@ -784,17 +802,19 @@ ${textToAnalyze}`;
       }
     }
 
-    // Save all keywords to keywords table
+    // Save all keywords to keywords table (excluding blacklisted)
     console.log(`[AI-${jobId}] Saving ${allKeywords.size} unique keywords`);
 
     for (const [keyword, count] of allKeywords) {
-      await pool.execute(`
-        INSERT INTO keywords (keyword, count, updated_at)
-        VALUES (?, ?, NOW())
-        ON DUPLICATE KEY UPDATE
-          count = count + VALUES(count),
-          updated_at = NOW()
-      `, [keyword, count]);
+      if (!blacklist.has(keyword)) {
+        await pool.execute(`
+          INSERT INTO keywords (keyword, count, updated_at)
+          VALUES (?, ?, NOW())
+          ON DUPLICATE KEY UPDATE
+            count = count + VALUES(count),
+            updated_at = NOW()
+        `, [keyword, count]);
+      }
     }
 
     job.status = 'completed';
@@ -809,18 +829,33 @@ ${textToAnalyze}`;
   }
 }
 
-// Get popular keywords
+// Get popular keywords (excluding blacklisted)
 app.get('/api/keywords', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 30;
+    const includeBlacklisted = req.query.includeBlacklisted === 'true';
 
-    const [rows] = await pool.execute(`
-      SELECT keyword, count
-      FROM keywords
-      ORDER BY count DESC
-      LIMIT ?
-    `, [limit]);
+    let query;
+    if (includeBlacklisted) {
+      query = `
+        SELECT k.keyword, k.count, (b.keyword IS NOT NULL) as is_blacklisted
+        FROM keywords k
+        LEFT JOIN keyword_blacklist b ON k.keyword = b.keyword
+        ORDER BY k.count DESC
+        LIMIT ?
+      `;
+    } else {
+      query = `
+        SELECT k.keyword, k.count, false as is_blacklisted
+        FROM keywords k
+        LEFT JOIN keyword_blacklist b ON k.keyword = b.keyword
+        WHERE b.keyword IS NULL
+        ORDER BY k.count DESC
+        LIMIT ?
+      `;
+    }
 
+    const [rows] = await pool.execute(query, [limit]);
     res.json(rows);
   } catch (error) {
     console.error('Keywords error:', error);
@@ -829,10 +864,138 @@ app.get('/api/keywords', async (req, res) => {
 });
 
 // ============================================
+// KEYWORD BLACKLIST ENDPOINTS
+// ============================================
+
+// Get all blacklisted keywords
+app.get('/api/keyword-blacklist', async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT keyword, created_at FROM keyword_blacklist ORDER BY keyword');
+    res.json(rows);
+  } catch (error) {
+    console.error('Blacklist error:', error);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Add keyword to blacklist
+app.post('/api/keyword-blacklist', async (req, res) => {
+  try {
+    const { keyword } = req.body;
+
+    if (!keyword || keyword.trim().length < 2) {
+      return res.status(400).json({ error: 'Keyword must be at least 2 characters' });
+    }
+
+    const cleanKeyword = keyword.trim().toLowerCase();
+
+    await pool.execute(
+      'INSERT IGNORE INTO keyword_blacklist (keyword) VALUES (?)',
+      [cleanKeyword]
+    );
+
+    // Also remove from keywords table
+    await pool.execute('DELETE FROM keywords WHERE keyword = ?', [cleanKeyword]);
+
+    res.json({ success: true, keyword: cleanKeyword });
+  } catch (error) {
+    console.error('Add blacklist error:', error);
+    res.status(500).json({ error: 'Failed to add to blacklist' });
+  }
+});
+
+// Remove keyword from blacklist
+app.delete('/api/keyword-blacklist/:keyword', async (req, res) => {
+  try {
+    const keyword = decodeURIComponent(req.params.keyword);
+
+    await pool.execute('DELETE FROM keyword_blacklist WHERE keyword = ?', [keyword]);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Remove blacklist error:', error);
+    res.status(500).json({ error: 'Failed to remove from blacklist' });
+  }
+});
+
+// Bulk add keywords to blacklist
+app.post('/api/keyword-blacklist/bulk', async (req, res) => {
+  try {
+    const { keywords } = req.body;
+
+    if (!Array.isArray(keywords) || keywords.length === 0) {
+      return res.status(400).json({ error: 'Keywords array is required' });
+    }
+
+    const cleanKeywords = keywords
+      .map(k => k.trim().toLowerCase())
+      .filter(k => k.length >= 2);
+
+    for (const keyword of cleanKeywords) {
+      await pool.execute('INSERT IGNORE INTO keyword_blacklist (keyword) VALUES (?)', [keyword]);
+      await pool.execute('DELETE FROM keywords WHERE keyword = ?', [keyword]);
+    }
+
+    res.json({ success: true, count: cleanKeywords.length });
+  } catch (error) {
+    console.error('Bulk blacklist error:', error);
+    res.status(500).json({ error: 'Failed to add to blacklist' });
+  }
+});
+
+// ============================================
 // SEARCH ENDPOINT
 // ============================================
 
-// Search videos by keywords and text
+// Extract context snippets from transcript around search terms
+function extractContextSnippets(transcript, searchTerms, maxSnippets = 3, contextChars = 150) {
+  if (!transcript) return [];
+
+  const snippets = [];
+  const lowerTranscript = transcript.toLowerCase();
+
+  for (const term of searchTerms) {
+    if (term.length < 2) continue;
+
+    let startIndex = 0;
+    while (snippets.length < maxSnippets) {
+      const index = lowerTranscript.indexOf(term.toLowerCase(), startIndex);
+      if (index === -1) break;
+
+      // Get context around the match
+      const snippetStart = Math.max(0, index - contextChars);
+      const snippetEnd = Math.min(transcript.length, index + term.length + contextChars);
+
+      let snippet = transcript.substring(snippetStart, snippetEnd);
+
+      // Clean up snippet boundaries
+      if (snippetStart > 0) snippet = '...' + snippet.substring(snippet.indexOf(' ') + 1);
+      if (snippetEnd < transcript.length) snippet = snippet.substring(0, snippet.lastIndexOf(' ')) + '...';
+
+      // Check if this snippet overlaps with existing ones
+      const overlaps = snippets.some(s => {
+        const sLower = s.text.toLowerCase();
+        return sLower.includes(snippet.toLowerCase().substring(10, 50)) ||
+               snippet.toLowerCase().includes(sLower.substring(10, 50));
+      });
+
+      if (!overlaps && snippet.length > 20) {
+        snippets.push({
+          text: snippet,
+          matchedTerm: term
+        });
+      }
+
+      startIndex = index + term.length;
+    }
+
+    if (snippets.length >= maxSnippets) break;
+  }
+
+  return snippets;
+}
+
+// Search videos by keywords and text (including transcript)
 app.get('/api/search', async (req, res) => {
   try {
     const query = req.query.q;
@@ -844,27 +1007,50 @@ app.get('/api/search', async (req, res) => {
     const searchTerms = query.toLowerCase().split(/\s+/).filter(t => t.length > 1);
     const searchPattern = `%${query}%`;
 
-    // Search in title, summary, keywords, and best_part
+    // Search in title, summary, keywords, and transcript
     const [rows] = await pool.execute(`
       SELECT
-        id, spotify_url, podcast_name, episode_title, summary, best_part, keywords, processed_at,
+        id, spotify_url, podcast_name, episode_title, summary, keywords, processed_at,
+        thumbnail_url, transcript,
         (
-          (CASE WHEN LOWER(episode_title) LIKE ? THEN 40 ELSE 0 END) +
-          (CASE WHEN LOWER(keywords) LIKE ? THEN 30 ELSE 0 END) +
-          (CASE WHEN LOWER(summary) LIKE ? THEN 20 ELSE 0 END) +
-          (CASE WHEN LOWER(best_part) LIKE ? THEN 10 ELSE 0 END)
+          (CASE WHEN LOWER(episode_title) LIKE ? THEN 50 ELSE 0 END) +
+          (CASE WHEN LOWER(keywords) LIKE ? THEN 40 ELSE 0 END) +
+          (CASE WHEN LOWER(summary) LIKE ? THEN 30 ELSE 0 END) +
+          (CASE WHEN LOWER(transcript) LIKE ? THEN 20 ELSE 0 END)
         ) as relevance_score
       FROM podcasts
       WHERE
         LOWER(episode_title) LIKE ? OR
         LOWER(keywords) LIKE ? OR
         LOWER(summary) LIKE ? OR
-        LOWER(best_part) LIKE ?
+        LOWER(transcript) LIKE ?
       ORDER BY relevance_score DESC, processed_at DESC
       LIMIT 50
     `, [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern]);
 
-    res.json(rows);
+    // Process results to extract context snippets
+    const results = rows.map(row => {
+      const snippets = extractContextSnippets(row.transcript, searchTerms);
+
+      // Generate Spotify search URL
+      const spotifySearchUrl = `https://open.spotify.com/search/${encodeURIComponent(row.episode_title)}`;
+
+      return {
+        id: row.id,
+        spotify_url: row.spotify_url,
+        podcast_name: row.podcast_name,
+        episode_title: row.episode_title,
+        summary: row.summary,
+        keywords: row.keywords,
+        processed_at: row.processed_at,
+        thumbnail_url: row.thumbnail_url,
+        relevance_score: row.relevance_score,
+        context_snippets: snippets,
+        spotify_search_url: spotifySearchUrl
+      };
+    });
+
+    res.json(results);
   } catch (error) {
     console.error('Search error:', error);
     res.status(500).json({ error: 'Search failed' });

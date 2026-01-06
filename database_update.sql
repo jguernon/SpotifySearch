@@ -30,3 +30,19 @@ CREATE TABLE IF NOT EXISTS keywords (
 -- Add index for faster keyword searches on podcasts
 CREATE INDEX IF NOT EXISTS idx_podcasts_keywords ON podcasts(keywords(255));
 CREATE INDEX IF NOT EXISTS idx_podcasts_channel ON podcasts(podcast_name);
+
+-- Add thumbnail column to podcasts
+ALTER TABLE podcasts
+ADD COLUMN IF NOT EXISTS thumbnail_url VARCHAR(500) DEFAULT NULL;
+
+-- Create blacklisted keywords table
+CREATE TABLE IF NOT EXISTS keyword_blacklist (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  keyword VARCHAR(100) NOT NULL UNIQUE,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_blacklist_keyword (keyword)
+);
+
+-- Add fulltext index for transcript search (much faster than LIKE)
+ALTER TABLE podcasts ADD FULLTEXT INDEX idx_transcript_fulltext (transcript);
+ALTER TABLE podcasts ADD FULLTEXT INDEX idx_all_text_fulltext (episode_title, summary, transcript);

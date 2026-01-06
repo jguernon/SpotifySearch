@@ -296,6 +296,137 @@
   color: #1db954;
 }
 
+/* Keywords Section */
+.keywords-section {
+  margin-bottom: 40px;
+}
+
+.keywords-section h2 {
+  color: #ffffff;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.section-description {
+  color: #888;
+  font-size: 0.9rem;
+  margin-bottom: 15px;
+}
+
+.keywords-actions, .blacklist-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.keywords-grid, .blacklist-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.keyword-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
+  font-size: 0.85rem;
+  color: #b3b3b3;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.keyword-chip:hover {
+  background: rgba(29, 185, 84, 0.15);
+  border-color: rgba(29, 185, 84, 0.4);
+}
+
+.keyword-chip.selected {
+  background: rgba(29, 185, 84, 0.25);
+  border-color: #1db954;
+  color: #1db954;
+}
+
+.keyword-chip .count {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+.keyword-chip .remove-btn {
+  background: none;
+  border: none;
+  color: #ff5252;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0;
+  line-height: 1;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.keyword-chip .remove-btn:hover {
+  opacity: 1;
+}
+
+.blacklist-input {
+  flex: 1;
+  min-width: 200px;
+  padding: 10px 15px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+  font-size: 0.9rem;
+}
+
+.blacklist-input:focus {
+  outline: none;
+  border-color: #1db954;
+}
+
+.blacklist-input::placeholder {
+  color: #666;
+}
+
+/* Button Variants */
+.secondary-btn.small, .primary-btn.small, .danger-btn {
+  padding: 8px 16px;
+  font-size: 0.85rem;
+}
+
+.danger-btn {
+  background: #ff5252;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.danger-btn:hover:not(:disabled) {
+  background: #ff6b6b;
+}
+
+.danger-btn:disabled {
+  background: #535353;
+  cursor: not-allowed;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .channel-header {
@@ -314,5 +445,13 @@
 
   .channel-actions {
     justify-content: center;
+  }
+
+  .keywords-actions, .blacklist-actions {
+    flex-direction: column;
+  }
+
+  .blacklist-input {
+    width: 100%;
   }
 }
