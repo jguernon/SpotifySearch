@@ -1,6 +1,6 @@
 // DOM Elements
 const form = document.getElementById('podcastForm');
-const spotifyUrlInput = document.getElementById('spotifyUrl');
+const urlInput = document.getElementById('spotifyUrl');
 const submitBtn = document.getElementById('submitBtn');
 const btnText = submitBtn.querySelector('.btn-text');
 const btnLoading = submitBtn.querySelector('.btn-loading');
@@ -32,16 +32,16 @@ document.addEventListener('DOMContentLoaded', loadHistory);
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
 
-  const url = spotifyUrlInput.value.trim();
+  const url = urlInput.value.trim();
 
   if (!url) {
-    showError('Please enter a Spotify podcast URL.');
+    showError('Please enter a YouTube URL.');
     return;
   }
 
-  // Validate Spotify URL format
-  if (!url.includes('open.spotify.com/episode/')) {
-    showError('Please enter a valid Spotify episode URL (e.g., https://open.spotify.com/episode/...)');
+  // Validate YouTube URL format
+  if (!url.includes('youtube.com') && !url.includes('youtu.be')) {
+    showError('Please enter a valid YouTube URL (e.g., https://www.youtube.com/watch?v=...)');
     return;
   }
 
@@ -61,12 +61,12 @@ form.addEventListener('submit', async (e) => {
     if (checkData.exists) {
       setLoading(false);
       hideProgress();
-      showError(`This podcast has already been processed on ${new Date(checkData.data.processed_at).toLocaleDateString()}. Episode: "${checkData.data.episode_title}"`);
+      showError(`This video has already been processed on ${new Date(checkData.data.processed_at).toLocaleDateString()}. Title: "${checkData.data.episode_title}"`);
       return;
     }
 
     // Start processing
-    updateProgress(10, 'Downloading podcast audio...');
+    updateProgress(10, 'Downloading audio from YouTube...');
 
     // Start the processing request
     const processPromise = fetch(`${API_BASE}/api/process`, {
@@ -77,31 +77,31 @@ form.addEventListener('submit', async (e) => {
       body: JSON.stringify({ url })
     });
 
-    // Simulate progress while waiting (podcasts take time to download and transcribe)
+    // Simulate progress while waiting
     let currentProgress = 10;
     const progressInterval = setInterval(() => {
       if (currentProgress < 90) {
         currentProgress += 2;
         const messages = [
-          'Downloading podcast audio...',
-          'Downloading podcast audio...',
-          'Downloading podcast audio...',
-          'Downloading podcast audio...',
-          'Downloading podcast audio...',
+          'Downloading audio from YouTube...',
+          'Downloading audio from YouTube...',
+          'Downloading audio from YouTube...',
+          'Downloading audio from YouTube...',
+          'Downloading audio from YouTube...',
           'Preparing audio for analysis...',
           'Preparing audio for analysis...',
-          'Sending audio to Gemini AI...',
-          'Sending audio to Gemini AI...',
-          'Gemini is listening to the podcast...',
-          'Gemini is listening to the podcast...',
-          'Gemini is listening to the podcast...',
-          'Gemini is listening to the podcast...',
-          'Gemini is listening to the podcast...',
-          'Transcribing audio content...',
-          'Transcribing audio content...',
-          'Transcribing audio content...',
-          'Analyzing podcast content...',
-          'Analyzing podcast content...',
+          'Uploading to Gemini AI...',
+          'Uploading to Gemini AI...',
+          'Gemini is listening...',
+          'Gemini is listening...',
+          'Gemini is listening...',
+          'Gemini is listening...',
+          'Gemini is listening...',
+          'Transcribing audio...',
+          'Transcribing audio...',
+          'Transcribing audio...',
+          'Analyzing content...',
+          'Analyzing content...',
           'Identifying key insights...',
           'Identifying key insights...',
           'Extracting best moments...',
@@ -124,7 +124,7 @@ form.addEventListener('submit', async (e) => {
     clearInterval(progressInterval);
 
     if (!processResponse.ok) {
-      throw new Error(processData.error || 'Failed to process podcast');
+      throw new Error(processData.error || 'Failed to process video');
     }
 
     updateProgress(95, 'Saving to database...');
@@ -207,14 +207,14 @@ async function loadHistory() {
     const podcasts = await response.json();
 
     if (podcasts.length === 0) {
-      historyList.innerHTML = '<p class="empty-state">No podcasts analyzed yet. Submit your first one above!</p>';
+      historyList.innerHTML = '<p class="empty-state">No videos analyzed yet. Submit your first one above!</p>';
       return;
     }
 
     historyList.innerHTML = podcasts.map(podcast => `
       <div class="history-item" onclick="showPodcastDetails(${podcast.id})">
-        <h4>${escapeHtml(podcast.episode_title || 'Unknown Episode')}</h4>
-        <p class="podcast-name">${escapeHtml(podcast.podcast_name || 'Unknown Podcast')}</p>
+        <h4>${escapeHtml(podcast.episode_title || 'Unknown Title')}</h4>
+        <p class="podcast-name">${escapeHtml(podcast.podcast_name || 'Unknown Channel')}</p>
         <p class="date">Processed: ${new Date(podcast.processed_at).toLocaleDateString()}</p>
       </div>
     `).join('');
@@ -237,7 +237,7 @@ async function showPodcastDetails(id) {
     });
 
   } catch (error) {
-    showError('Failed to load podcast details');
+    showError('Failed to load details');
   }
 }
 

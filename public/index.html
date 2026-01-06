@@ -3,32 +3,32 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SpotifySearch - Podcast Analyzer</title>
+  <title>YouTube Transcriber - Powered by Gemini AI</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>SpotifySearch</h1>
-      <p class="subtitle">Podcast Transcript Analyzer powered by Google Gemini AI</p>
+      <h1>YouTube Transcriber</h1>
+      <p class="subtitle">Video Transcript Analyzer powered by Google Gemini AI</p>
     </header>
 
     <main>
       <form id="podcastForm">
         <div class="form-group">
-          <label for="spotifyUrl">Spotify Podcast URL</label>
+          <label for="spotifyUrl">YouTube Video URL</label>
           <input
             type="url"
             id="spotifyUrl"
             name="spotifyUrl"
-            placeholder="https://open.spotify.com/episode/..."
+            placeholder="https://www.youtube.com/watch?v=..."
             required
           >
-          <p class="field-hint">Paste the Spotify episode link - Gemini AI will listen and transcribe it automatically</p>
+          <p class="field-hint">Paste a YouTube video link - Gemini AI will listen and transcribe it automatically</p>
         </div>
 
         <button type="submit" id="submitBtn">
-          <span class="btn-text">Analyze Podcast</span>
+          <span class="btn-text">Analyze Video</span>
           <span class="btn-loading" style="display: none;">Processing...</span>
         </button>
       </form>
@@ -53,11 +53,11 @@
         <h2>Analysis Results</h2>
         <div class="result-card">
           <div class="result-item">
-            <h3>Podcast</h3>
+            <h3>Channel</h3>
             <p id="resultPodcastName"></p>
           </div>
           <div class="result-item">
-            <h3>Episode</h3>
+            <h3>Video Title</h3>
             <p id="resultEpisodeTitle"></p>
           </div>
           <div class="result-item">
@@ -69,10 +69,10 @@
             <p id="resultBestPart"></p>
           </div>
         </div>
-        <button id="newAnalysisBtn" class="secondary-btn">Analyze Another Podcast</button>
+        <button id="newAnalysisBtn" class="secondary-btn">Analyze Another Video</button>
       </div>
 
-      <!-- Previous Podcasts -->
+      <!-- Previous Videos -->
       <section id="historySection" class="history-section">
         <h2>Previously Analyzed</h2>
         <div id="historyList" class="history-list">
