@@ -141,6 +141,7 @@ async function performSearch(query) {
     console.error('Search error:', error);
   } finally {
     setLoading(false);
+    scrollToResults();
   }
 }
 
@@ -239,6 +240,10 @@ function escapeHtml(text) {
 
 function escapeRegex(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function scrollToResults() {
+  resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 // Clear search
