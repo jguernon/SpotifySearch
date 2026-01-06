@@ -1199,19 +1199,33 @@ async function backfillThumbnailsAsync(jobId) {
 // Get indexed stats for public footer
 app.get('/api/indexed-stats', async (req, res) => {
   try {
-    // Get total episodes count
-    const [totalCount] = await pool.execute('SELECT COUNT(*) as total FROM podcasts');
+    const language = req.query.lang || null;
 
-    // Get channels with their episode counts and last processed date
-    const [channels] = await pool.execute(`
+    // Get total episodes count (filtered by language if provided)
+    let totalQuery = 'SELECT COUNT(*) as total FROM podcasts';
+    let totalParams = [];
+    if (language) {
+      totalQuery += ' WHERE language = ?';
+      totalParams = [language];
+    }
+    const [totalCount] = await pool.execute(totalQuery, totalParams);
+
+    // Get channels with their episode counts and last processed date (filtered by language)
+    let channelsQuery = `
       SELECT
         podcast_name as name,
         COUNT(*) as episodes,
         MAX(processed_at) as last_scan
       FROM podcasts
-      GROUP BY podcast_name
-      ORDER BY episodes DESC
-    `);
+    `;
+    let channelsParams = [];
+    if (language) {
+      channelsQuery += ' WHERE language = ?';
+      channelsParams = [language];
+    }
+    channelsQuery += ' GROUP BY podcast_name ORDER BY episodes DESC';
+
+    const [channels] = await pool.execute(channelsQuery, channelsParams);
 
     // Get total available from channels table if exists
     const [channelStats] = await pool.execute(`

@@ -26,6 +26,15 @@ let currentSort = 'relevance';
 // Language selection
 let currentLanguage = 'en';
 
+// Get language display name
+function getLanguageDisplayName(lang) {
+  const names = {
+    'en': 'English',
+    'fr': 'Français'
+  };
+  return names[lang] || lang.toUpperCase();
+}
+
 // Set language and reload content
 function setLanguage(lang) {
   currentLanguage = lang;
@@ -37,6 +46,9 @@ function setLanguage(lang) {
 
   // Reload popular tags for the selected language
   loadPopularTags();
+
+  // Reload indexed stats for the selected language
+  loadIndexedStats();
 
   // If there's a current search, re-run it with new language
   if (currentQuery) {
@@ -293,15 +305,21 @@ window.addEventListener('popstate', () => {
 // Load indexed stats
 async function loadIndexedStats() {
   try {
-    const response = await fetch(`${API_BASE}/api/indexed-stats`);
+    const response = await fetch(`${API_BASE}/api/indexed-stats?lang=${currentLanguage}`);
     const stats = await response.json();
 
     totalEpisodes.textContent = stats.total_episodes.toLocaleString();
     indexedStatsLoaded = true;
 
+    // Update language indicator in footer
+    const langIndicator = document.getElementById('footerLangIndicator');
+    if (langIndicator) {
+      langIndicator.textContent = getLanguageDisplayName(currentLanguage);
+    }
+
     // Pre-render the list
     if (stats.channels.length === 0) {
-      indexedList.innerHTML = '<p class="empty-state">No channels indexed yet</p>';
+      indexedList.innerHTML = `<p class="empty-state">No channels indexed in ${getLanguageDisplayName(currentLanguage)}</p>`;
     } else {
       indexedList.innerHTML = stats.channels.map(channel => {
         const lastScan = new Date(channel.last_scan).toLocaleDateString();
