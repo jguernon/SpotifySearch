@@ -142,6 +142,45 @@
   margin: 0;
 }
 
+.results-header-left {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.sort-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sort-label {
+  color: #888;
+  font-size: 0.85rem;
+}
+
+.sort-btn {
+  padding: 6px 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  color: #888;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.sort-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #b3b3b3;
+}
+
+.sort-btn.active {
+  background: rgba(29, 185, 84, 0.2);
+  border-color: rgba(29, 185, 84, 0.4);
+  color: #1db954;
+}
+
 .results-count {
   color: #888;
   font-size: 0.9rem;
@@ -448,6 +487,17 @@
 
   .search-input-wrapper button {
     width: 100%;
+  }
+
+  .results-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+
+  .sort-controls {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .episode-card-content {

@@ -44,8 +44,15 @@
       <!-- Search Results -->
       <section id="resultsSection" class="results-section" style="display: none;">
         <div class="results-header">
-          <h2>Search Results</h2>
-          <p id="resultsCount" class="results-count"></p>
+          <div class="results-header-left">
+            <h2>Search Results</h2>
+            <p id="resultsCount" class="results-count"></p>
+          </div>
+          <div class="sort-controls">
+            <span class="sort-label">Sort:</span>
+            <button class="sort-btn active" id="sortRelevance" onclick="sortResults('relevance')">Best match</button>
+            <button class="sort-btn" id="sortNewest" onclick="sortResults('newest')">Newest</button>
+          </div>
         </div>
         <div id="resultsList" class="results-list"></div>
       </section>

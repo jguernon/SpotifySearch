@@ -16,6 +16,35 @@ const expandBtn = document.getElementById('expandBtn');
 let indexedExpanded = false;
 let indexedStatsLoaded = false;
 
+// Sort elements
+const sortRelevanceBtn = document.getElementById('sortRelevance');
+const sortNewestBtn = document.getElementById('sortNewest');
+let currentResults = [];
+let currentQuery = '';
+let currentSort = 'relevance';
+
+// Sort results
+function sortResults(sortType) {
+  if (currentResults.length === 0) return;
+
+  currentSort = sortType;
+
+  // Update button states
+  sortRelevanceBtn.classList.toggle('active', sortType === 'relevance');
+  sortNewestBtn.classList.toggle('active', sortType === 'newest');
+
+  // Sort the results
+  const sortedResults = [...currentResults];
+  if (sortType === 'relevance') {
+    sortedResults.sort((a, b) => (b.relevance_score || 0) - (a.relevance_score || 0));
+  } else if (sortType === 'newest') {
+    sortedResults.sort((a, b) => new Date(b.processed_at || 0) - new Date(a.processed_at || 0));
+  }
+
+  // Re-render results
+  resultsList.innerHTML = sortedResults.map(episode => createEpisodeCard(episode, currentQuery)).join('');
+}
+
 // Load data on page load
 document.addEventListener('DOMContentLoaded', () => {
   loadPopularTags();
@@ -84,6 +113,15 @@ async function performSearch(query) {
   try {
     const response = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(query)}`);
     const results = await response.json();
+
+    // Store results for sorting
+    currentResults = results;
+    currentQuery = query;
+    currentSort = 'relevance';
+
+    // Reset sort buttons
+    sortRelevanceBtn.classList.add('active');
+    sortNewestBtn.classList.remove('active');
 
     if (results.length === 0) {
       resultsList.innerHTML = `
