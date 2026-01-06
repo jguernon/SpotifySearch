@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube Transcriber - Powered by Gemini AI</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>YouTube Transcriber</h1>
+      <p class="subtitle">Video Transcript Analyzer powered by Google Gemini AI</p>
+      <nav class="nav-links">
+        <a href="index.html" class="active">Home</a>
+        <a href="channels.html">Channels</a>
+        <a href="search.html">Search</a>
+      </nav>
+    </header>
+
+    <main>
+      <form id="podcastForm">
+        <div class="form-group">
+          <label for="spotifyUrl">YouTube Video URL</label>
+          <input
+            type="url"
+            id="spotifyUrl"
+            name="spotifyUrl"
+            placeholder="https://www.youtube.com/watch?v=..."
+            required
+          >
+          <p class="field-hint">Paste a YouTube video link - Gemini AI will listen and transcribe it automatically</p>
+        </div>
+
+        <button type="submit" id="submitBtn">
+          <span class="btn-text">Analyze Video</span>
+          <span class="btn-loading" style="display: none;">Processing...</span>
+        </button>
+      </form>
+
+      <!-- Progress Section -->
+      <div id="progressSection" class="progress-section" style="display: none;">
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <p class="progress-text" id="progressText">Initializing...</p>
+        <p class="progress-percent" id="progressPercent">0%</p>
+      </div>
+
+      <!-- Error Message -->
+      <div id="errorMessage" class="error-message" style="display: none;">
+        <span class="error-icon">!</span>
+        <p id="errorText"></p>
+      </div>
+
+      <!-- Results Section -->
+      <div id="resultsSection" class="results-section" style="display: none;">
+        <h2>Analysis Results</h2>
+        <div class="result-card">
+          <div class="result-item">
+            <h3>Channel</h3>
+            <p id="resultPodcastName"></p>
+          </div>
+          <div class="result-item">
+            <h3>Video Title</h3>
+            <p id="resultEpisodeTitle"></p>
+          </div>
+          <div class="result-item">
+            <h3>Summary</h3>
+            <p id="resultSummary"></p>
+          </div>
+          <div class="result-item highlight">
+            <h3>Best Part</h3>
+            <p id="resultBestPart"></p>
+          </div>
+        </div>
+        <button id="newAnalysisBtn" class="secondary-btn">Analyze Another Video</button>
+      </div>
+
+      <!-- Previous Videos -->
+      <section id="historySection" class="history-section">
+        <h2>Previously Analyzed</h2>
+        <div id="historyList" class="history-list">
+          <p class="loading-text">Loading...</p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Powered by Google Gemini AI</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
