@@ -601,18 +601,23 @@ app.post('/api/refresh-channel-count', async (req, res) => {
       return res.status(400).json({ error: 'Channel URL is required' });
     }
 
-    // Get first video info to get latest upload date
-    const { stdout: firstVideoJson } = await execPromise(
-      `yt-dlp --flat-playlist --dump-json --playlist-end 1 "${channelUrl}"`,
-      { timeout: 60000 }
+    console.log(`[Check Updates] Checking ${channelName} at ${channelUrl}`);
+
+    // Get all videos from channel to count and find the newest
+    const { stdout: allVideosJson } = await execPromise(
+      `yt-dlp --flat-playlist --dump-json "${channelUrl}"`,
+      { timeout: 120000, maxBuffer: 50 * 1024 * 1024 }
     );
 
-    let lastVideoDate = null;
-    let totalVideos = 0;
+    const videoLines = allVideosJson.trim().split('\n').filter(line => line.trim());
+    const totalVideos = videoLines.length;
 
-    if (firstVideoJson.trim()) {
-      const firstVideo = JSON.parse(firstVideoJson.trim().split('\n')[0]);
-      // Get full info for upload date
+    console.log(`[Check Updates] Found ${totalVideos} videos on YouTube`);
+
+    // Get the most recent video's upload date (first video in the list is usually newest)
+    let lastVideoDate = null;
+    if (videoLines.length > 0) {
+      const firstVideo = JSON.parse(videoLines[0]);
       if (firstVideo.id) {
         try {
           const { stdout: videoInfo } = await execPromise(
@@ -623,19 +628,20 @@ app.post('/api/refresh-channel-count', async (req, res) => {
           if (info.upload_date) {
             const dateStr = info.upload_date;
             lastVideoDate = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
+            console.log(`[Check Updates] Latest video date on YouTube: ${lastVideoDate}`);
           }
         } catch (e) {
-          console.log('Could not get upload date for latest video');
+          console.log('[Check Updates] Could not get upload date for latest video:', e.message);
         }
       }
     }
 
-    // Get total videos count
-    const { stdout: countOutput } = await execPromise(
-      `yt-dlp --flat-playlist --dump-json "${channelUrl}" 2>/dev/null | wc -l`,
-      { timeout: 120000 }
+    // Get count of videos we have indexed for this channel
+    const [countInDb] = await pool.execute(
+      'SELECT COUNT(*) as count FROM podcasts WHERE podcast_name = ?',
+      [channelName]
     );
-    totalVideos = parseInt(countOutput.trim()) || 0;
+    const videosInDb = countInDb[0]?.count || 0;
 
     // Get our newest video date for this channel
     const [newestInDb] = await pool.execute(
@@ -644,10 +650,32 @@ app.post('/api/refresh-channel-count', async (req, res) => {
     );
     const newestInDbDate = newestInDb[0]?.newest;
 
-    // Check if there are new videos
-    const hasNewVideos = lastVideoDate && newestInDbDate
-      ? new Date(lastVideoDate) > new Date(newestInDbDate)
-      : false;
+    console.log(`[Check Updates] Videos in DB: ${videosInDb}, Newest date in DB: ${newestInDbDate}`);
+
+    // Check if there are new videos - multiple conditions:
+    // 1. More videos on YouTube than in our DB
+    // 2. Latest video date on YouTube is newer than our newest
+    // 3. We have no upload_date in DB but YouTube has videos (legacy data)
+    let hasNewVideos = false;
+    const missingVideos = totalVideos - videosInDb;
+
+    if (missingVideos > 0) {
+      // More videos on YouTube than we have indexed
+      hasNewVideos = true;
+      console.log(`[Check Updates] Missing ${missingVideos} videos`);
+    } else if (lastVideoDate && newestInDbDate) {
+      // Compare dates
+      hasNewVideos = new Date(lastVideoDate) > new Date(newestInDbDate);
+      if (hasNewVideos) {
+        console.log(`[Check Updates] New video date detected: ${lastVideoDate} > ${newestInDbDate}`);
+      }
+    } else if (lastVideoDate && !newestInDbDate && videosInDb > 0) {
+      // We have videos but no upload_date (legacy data) - can't determine, assume might have new
+      hasNewVideos = true;
+      console.log(`[Check Updates] Legacy data without upload_date, marking as potentially having new videos`);
+    }
+
+    console.log(`[Check Updates] Has new videos: ${hasNewVideos}`);
 
     // Update or insert into channels table
     await pool.execute(`
@@ -664,6 +692,8 @@ app.post('/api/refresh-channel-count', async (req, res) => {
     res.json({
       success: true,
       totalVideos,
+      videosInDb,
+      missingVideos,
       lastVideoDate,
       newestInDb: newestInDbDate,
       hasNewVideos

@@ -491,14 +491,18 @@ async function refreshChannelCount(channelName, channelUrl) {
     }
 
     // Show detailed result
-    let message = `${channelName}: ${data.totalVideos} videos available.`;
+    let message = `${channelName}: ${data.totalVideos} videos on YouTube, ${data.videosInDb} indexed.`;
     if (data.lastVideoDate) {
-      message += ` Latest video: ${new Date(data.lastVideoDate).toLocaleDateString()}.`;
+      message += ` Latest: ${new Date(data.lastVideoDate).toLocaleDateString()}.`;
     }
     if (data.hasNewVideos) {
-      message += ' NEW VIDEOS AVAILABLE!';
-    } else if (data.newestInDb) {
-      message += ' All videos indexed.';
+      if (data.missingVideos > 0) {
+        message += ` ${data.missingVideos} NEW VIDEO(S) AVAILABLE!`;
+      } else {
+        message += ' NEW CONTENT DETECTED!';
+      }
+    } else {
+      message += ' Up to date.';
     }
 
     showSuccess(message);
