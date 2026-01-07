@@ -15,6 +15,8 @@ const successMessage = document.getElementById('successMessage');
 const successText = document.getElementById('successText');
 const backfillThumbnailsBtn = document.getElementById('backfillThumbnailsBtn');
 const missingThumbnails = document.getElementById('missingThumbnails');
+const processNewOnlyBtn = document.getElementById('processNewOnlyBtn');
+const videosWithoutKeywords = document.getElementById('videosWithoutKeywords');
 
 // Keyword management elements
 const keywordsList = document.getElementById('keywordsList');
@@ -133,8 +135,11 @@ async function addToBlacklist() {
   }
 }
 
-// Process AI button
-processAiBtn.addEventListener('click', startAiProcessing);
+// Process New Only button (primary)
+processNewOnlyBtn.addEventListener('click', () => startAiProcessing(true));
+
+// Process All (reprocess) button
+processAiBtn.addEventListener('click', () => startAiProcessing(false));
 
 // Backfill thumbnails button
 backfillThumbnailsBtn.addEventListener('click', startThumbnailBackfill);
@@ -259,11 +264,21 @@ async function loadAiStatus() {
       : 'Never';
     totalKeywords.textContent = status.total_keywords || 0;
     videosAnalyzed.textContent = status.videos_analyzed || 0;
+    videosWithoutKeywords.textContent = status.videos_without_keywords || 0;
     missingThumbnails.textContent = status.missing_thumbnails || 0;
+
+    // Update Process New Only button state
+    if (status.videos_without_keywords === 0) {
+      processNewOnlyBtn.disabled = true;
+    } else {
+      processNewOnlyBtn.disabled = false;
+    }
 
     // Update backfill button state
     if (status.missing_thumbnails === 0) {
       backfillThumbnailsBtn.disabled = true;
+    } else {
+      backfillThumbnailsBtn.disabled = false;
     }
   } catch (error) {
     console.error('Failed to load AI status:', error);
@@ -271,16 +286,18 @@ async function loadAiStatus() {
 }
 
 // Start AI processing
-async function startAiProcessing() {
+async function startAiProcessing(newOnly = false) {
   hideError();
   hideSuccess();
-  setAiLoading(true);
+  setAiLoading(true, newOnly);
   showAiProgress();
-  updateAiProgress(0, 'Starting AI processing...');
+  updateAiProgress(0, newOnly ? 'Starting AI processing (new videos only)...' : 'Starting AI processing (all videos)...');
 
   try {
     const response = await fetch(`${API_BASE}/api/process-ai`, {
-      method: 'POST'
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ newOnly })
     });
 
     const data = await response.json();
@@ -290,13 +307,13 @@ async function startAiProcessing() {
     }
 
     // Poll for status
-    await pollAiStatus(data.jobId);
+    await pollAiStatus(data.jobId, newOnly);
 
   } catch (error) {
     hideAiProgress();
     showError('AI processing failed: ' + error.message);
   } finally {
-    setAiLoading(false);
+    setAiLoading(false, newOnly);
   }
 }
 
@@ -378,8 +395,9 @@ async function pollJobStatus(jobId, type) {
 }
 
 // Poll AI processing status
-async function pollAiStatus(jobId) {
+async function pollAiStatus(jobId, newOnly = false) {
   let completed = false;
+  const modeLabel = newOnly ? 'new videos' : 'all videos';
 
   while (!completed) {
     await sleep(2000);
@@ -402,7 +420,7 @@ async function pollAiStatus(jobId) {
         updateAiProgress(100, 'Complete!');
         await sleep(500);
         hideAiProgress();
-        showSuccess(`AI processing complete! Extracted ${status.keywords_count} keywords from ${status.processed} videos.`);
+        showSuccess(`AI processing complete (${modeLabel})! Extracted ${status.keywords_count} keywords from ${status.processed} videos.`);
         loadAiStatus();
         loadChannels();
       }
@@ -519,10 +537,18 @@ async function refreshChannelCount(channelName, channelUrl) {
 }
 
 // Helper functions
-function setAiLoading(loading) {
+function setAiLoading(loading, newOnly = false) {
+  // Disable both buttons during processing
   processAiBtn.disabled = loading;
-  processAiBtn.querySelector('.btn-text').style.display = loading ? 'none' : 'inline';
-  processAiBtn.querySelector('.btn-loading').style.display = loading ? 'inline' : 'none';
+  processNewOnlyBtn.disabled = loading;
+
+  if (newOnly) {
+    processNewOnlyBtn.querySelector('.btn-text').style.display = loading ? 'none' : 'inline';
+    processNewOnlyBtn.querySelector('.btn-loading').style.display = loading ? 'inline' : 'none';
+  } else {
+    processAiBtn.querySelector('.btn-text').style.display = loading ? 'none' : 'inline';
+    processAiBtn.querySelector('.btn-loading').style.display = loading ? 'inline' : 'none';
+  }
 }
 
 function showAiProgress() {

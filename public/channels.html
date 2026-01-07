@@ -40,11 +40,16 @@
             <p><strong>Last processed:</strong> <span id="lastProcessed">Never</span></p>
             <p><strong>Total keywords:</strong> <span id="totalKeywords">0</span></p>
             <p><strong>Videos analyzed:</strong> <span id="videosAnalyzed">0</span></p>
+            <p><strong>Videos without keywords:</strong> <span id="videosWithoutKeywords">-</span></p>
             <p><strong>Missing thumbnails:</strong> <span id="missingThumbnails">-</span></p>
           </div>
           <div class="ai-buttons">
-            <button id="processAiBtn" class="primary-btn">
-              <span class="btn-text">Process All with AI</span>
+            <button id="processNewOnlyBtn" class="primary-btn">
+              <span class="btn-text">Process New Only</span>
+              <span class="btn-loading" style="display: none;">Processing...</span>
+            </button>
+            <button id="processAiBtn" class="secondary-btn">
+              <span class="btn-text">Reprocess All</span>
               <span class="btn-loading" style="display: none;">Processing...</span>
             </button>
             <button id="backfillThumbnailsBtn" class="secondary-btn">

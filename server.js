@@ -805,12 +805,14 @@ app.get('/api/ai-status', async (req, res) => {
     const [videoCount] = await pool.execute('SELECT COUNT(*) as count FROM podcasts WHERE keywords IS NOT NULL AND keywords != ""');
     const [lastProcessed] = await pool.execute('SELECT MAX(ai_processed_at) as last FROM podcasts WHERE ai_processed_at IS NOT NULL');
     const [missingThumbnails] = await pool.execute('SELECT COUNT(*) as count FROM podcasts WHERE thumbnail_url IS NULL OR thumbnail_url = ""');
+    const [videosWithoutKeywords] = await pool.execute('SELECT COUNT(*) as count FROM podcasts WHERE keywords IS NULL OR keywords = ""');
 
     res.json({
       total_keywords: keywordCount[0].count || 0,
       videos_analyzed: videoCount[0].count || 0,
       last_processed: lastProcessed[0].last,
-      missing_thumbnails: missingThumbnails[0].count || 0
+      missing_thumbnails: missingThumbnails[0].count || 0,
+      videos_without_keywords: videosWithoutKeywords[0].count || 0
     });
   } catch (error) {
     console.error('AI status error:', error);
@@ -821,19 +823,21 @@ app.get('/api/ai-status', async (req, res) => {
 // Start AI processing for all videos
 app.post('/api/process-ai', async (req, res) => {
   try {
+    const { newOnly = false } = req.body || {};
     const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2);
 
     aiJobs.set(jobId, {
       status: 'starting',
       total: 0,
       processed: 0,
-      keywords_count: 0
+      keywords_count: 0,
+      newOnly: newOnly
     });
 
     res.json({ success: true, jobId });
 
     // Process in background
-    processAiAsync(jobId);
+    processAiAsync(jobId, newOnly);
 
   } catch (error) {
     console.error('AI processing error:', error);
@@ -853,7 +857,7 @@ app.get('/api/ai-status/:jobId', (req, res) => {
 });
 
 // Background AI processing
-async function processAiAsync(jobId) {
+async function processAiAsync(jobId, newOnly = false) {
   const job = aiJobs.get(jobId);
 
   try {
@@ -861,18 +865,31 @@ async function processAiAsync(jobId) {
     const [blacklistRows] = await pool.execute('SELECT keyword FROM keyword_blacklist');
     const blacklist = new Set(blacklistRows.map(r => r.keyword.toLowerCase()));
 
-    // Get all videos that haven't been AI processed or need reprocessing
-    const [videos] = await pool.execute(`
-      SELECT id, episode_title, podcast_name, summary, transcript, language
-      FROM podcasts
-      WHERE (keywords IS NULL OR keywords = '')
-      ORDER BY processed_at DESC
-    `);
+    // Get videos based on mode
+    let query;
+    if (newOnly) {
+      // Only process videos without keywords (new videos)
+      query = `
+        SELECT id, episode_title, podcast_name, summary, transcript, language
+        FROM podcasts
+        WHERE (keywords IS NULL OR keywords = '')
+        ORDER BY processed_at DESC
+      `;
+    } else {
+      // Reprocess ALL videos (reset keywords)
+      query = `
+        SELECT id, episode_title, podcast_name, summary, transcript, language
+        FROM podcasts
+        ORDER BY processed_at DESC
+      `;
+    }
+    const [videos] = await pool.execute(query);
 
     job.total = videos.length;
     job.status = 'processing';
 
-    console.log(`[AI-${jobId}] Processing ${videos.length} videos for keywords (${blacklist.size} blacklisted terms)`);
+    const modeLabel = newOnly ? 'NEW ONLY' : 'ALL';
+    console.log(`[AI-${jobId}] Processing ${videos.length} videos for keywords [${modeLabel}] (${blacklist.size} blacklisted terms)`);
 
     const allKeywords = new Map(); // Map of "keyword|language" -> count
 
