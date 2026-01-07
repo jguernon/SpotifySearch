@@ -117,15 +117,23 @@ async function getYoutubeInfo(youtubeUrl) {
       thumbnail = info.thumbnails[info.thumbnails.length - 1].url;
     }
 
+    // Parse upload date (format: YYYYMMDD)
+    let uploadDate = null;
+    if (info.upload_date) {
+      const dateStr = info.upload_date;
+      uploadDate = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
+    }
+
     return {
       title: info.title || 'Unknown',
       channel: info.uploader || info.channel || 'Unknown',
       duration: info.duration || 0,
-      thumbnail: thumbnail
+      thumbnail: thumbnail,
+      uploadDate: uploadDate
     };
   } catch (error) {
     console.error('Could not get YouTube info:', error.message);
-    return { title: 'Unknown', channel: 'Unknown', duration: 0, thumbnail: null };
+    return { title: 'Unknown', channel: 'Unknown', duration: 0, thumbnail: null, uploadDate: null };
   }
 }
 
@@ -272,10 +280,10 @@ ${transcript.substring(0, 30000)}`;
     };
   }
 
-  // Save to database with thumbnail and language
+  // Save to database with thumbnail, language and upload date
   const [insertResult] = await pool.execute(
-    `INSERT INTO podcasts (spotify_url, podcast_name, episode_title, transcript, best_part, summary, thumbnail_url, language)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO podcasts (spotify_url, podcast_name, episode_title, transcript, best_part, summary, thumbnail_url, language, upload_date)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       url,
       ytInfo.channel || 'Unknown',
@@ -284,7 +292,8 @@ ${transcript.substring(0, 30000)}`;
       analysis.best_part || '',
       analysis.summary || '',
       ytInfo.thumbnail || null,
-      language
+      language,
+      ytInfo.uploadDate || null
     ]
   );
 
@@ -294,7 +303,8 @@ ${transcript.substring(0, 30000)}`;
     title: ytInfo.title,
     channel: ytInfo.channel,
     summary: analysis.summary,
-    thumbnail: ytInfo.thumbnail
+    thumbnail: ytInfo.thumbnail,
+    uploadDate: ytInfo.uploadDate
   };
 }
 
@@ -528,7 +538,8 @@ app.get('/api/channels', async (req, res) => {
         MIN(spotify_url) as channel_url,
         COUNT(*) as videos_processed,
         MAX(processed_at) as last_processed,
-        MAX(ai_processed_at) as ai_processed_at
+        MAX(ai_processed_at) as ai_processed_at,
+        MAX(upload_date) as newest_video_date
       FROM podcasts
       GROUP BY podcast_name
       ORDER BY last_processed DESC
@@ -537,7 +548,7 @@ app.get('/api/channels', async (req, res) => {
     // For each channel, we need to get total available videos
     // This is stored in the channels table or we estimate from what we have
     const [channelStats] = await pool.execute(`
-      SELECT channel_name, total_videos, channel_url
+      SELECT channel_name, total_videos, channel_url, last_video_date, last_checked
       FROM channels
       WHERE channel_name IS NOT NULL
     `);
@@ -546,13 +557,24 @@ app.get('/api/channels', async (req, res) => {
 
     const channels = rows.map(row => {
       const stats = statsMap.get(row.channel_name);
+
+      // Check if there might be new videos (last_video_date from YouTube > our newest_video_date)
+      let hasNewVideos = false;
+      if (stats?.last_video_date && row.newest_video_date) {
+        hasNewVideos = new Date(stats.last_video_date) > new Date(row.newest_video_date);
+      }
+
       return {
         channel_name: row.channel_name,
         channel_url: stats?.channel_url || extractChannelUrl(row.channel_url),
         videos_processed: row.videos_processed,
         total_available: stats?.total_videos || row.videos_processed,
         last_processed: row.last_processed,
-        ai_processed_at: row.ai_processed_at
+        ai_processed_at: row.ai_processed_at,
+        newest_video_date: row.newest_video_date,
+        last_video_date_on_youtube: stats?.last_video_date || null,
+        last_checked: stats?.last_checked || null,
+        has_new_videos: hasNewVideos
       };
     });
 
@@ -570,7 +592,7 @@ function extractChannelUrl(videoUrl) {
   return null;
 }
 
-// Refresh channel video count
+// Refresh channel video count and check for new videos
 app.post('/api/refresh-channel-count', async (req, res) => {
   try {
     const { channelName, channelUrl } = req.body;
@@ -579,25 +601,73 @@ app.post('/api/refresh-channel-count', async (req, res) => {
       return res.status(400).json({ error: 'Channel URL is required' });
     }
 
-    // Get total videos from channel
-    const { stdout } = await execPromise(
+    // Get first video info to get latest upload date
+    const { stdout: firstVideoJson } = await execPromise(
+      `yt-dlp --flat-playlist --dump-json --playlist-end 1 "${channelUrl}"`,
+      { timeout: 60000 }
+    );
+
+    let lastVideoDate = null;
+    let totalVideos = 0;
+
+    if (firstVideoJson.trim()) {
+      const firstVideo = JSON.parse(firstVideoJson.trim().split('\n')[0]);
+      // Get full info for upload date
+      if (firstVideo.id) {
+        try {
+          const { stdout: videoInfo } = await execPromise(
+            `yt-dlp --dump-json --no-download "https://www.youtube.com/watch?v=${firstVideo.id}"`,
+            { timeout: 30000 }
+          );
+          const info = JSON.parse(videoInfo);
+          if (info.upload_date) {
+            const dateStr = info.upload_date;
+            lastVideoDate = `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
+          }
+        } catch (e) {
+          console.log('Could not get upload date for latest video');
+        }
+      }
+    }
+
+    // Get total videos count
+    const { stdout: countOutput } = await execPromise(
       `yt-dlp --flat-playlist --dump-json "${channelUrl}" 2>/dev/null | wc -l`,
       { timeout: 120000 }
     );
+    totalVideos = parseInt(countOutput.trim()) || 0;
 
-    const totalVideos = parseInt(stdout.trim()) || 0;
+    // Get our newest video date for this channel
+    const [newestInDb] = await pool.execute(
+      'SELECT MAX(upload_date) as newest FROM podcasts WHERE podcast_name = ?',
+      [channelName]
+    );
+    const newestInDbDate = newestInDb[0]?.newest;
+
+    // Check if there are new videos
+    const hasNewVideos = lastVideoDate && newestInDbDate
+      ? new Date(lastVideoDate) > new Date(newestInDbDate)
+      : false;
 
     // Update or insert into channels table
     await pool.execute(`
-      INSERT INTO channels (channel_name, channel_url, total_videos, updated_at)
-      VALUES (?, ?, ?, NOW())
+      INSERT INTO channels (channel_name, channel_url, total_videos, last_video_date, last_checked, updated_at)
+      VALUES (?, ?, ?, ?, NOW(), NOW())
       ON DUPLICATE KEY UPDATE
         total_videos = VALUES(total_videos),
         channel_url = VALUES(channel_url),
+        last_video_date = VALUES(last_video_date),
+        last_checked = NOW(),
         updated_at = NOW()
-    `, [channelName, channelUrl, totalVideos]);
+    `, [channelName, channelUrl, totalVideos, lastVideoDate]);
 
-    res.json({ success: true, totalVideos });
+    res.json({
+      success: true,
+      totalVideos,
+      lastVideoDate,
+      newestInDb: newestInDbDate,
+      hasNewVideos
+    });
   } catch (error) {
     console.error('Refresh count error:', error);
     res.status(500).json({ error: 'Failed to refresh count: ' + error.message });
@@ -1105,7 +1175,7 @@ app.get('/api/search', async (req, res) => {
     let sqlQuery = `
       SELECT
         id, spotify_url, podcast_name, episode_title, summary, keywords, processed_at,
-        thumbnail_url, transcript, language,
+        thumbnail_url, transcript, language, upload_date,
         (
           (CASE WHEN LOWER(episode_title) LIKE ? THEN 50 ELSE 0 END) +
           (CASE WHEN LOWER(keywords) LIKE ? THEN 40 ELSE 0 END) +
@@ -1127,7 +1197,7 @@ app.get('/api/search', async (req, res) => {
       params.push(language);
     }
 
-    sqlQuery += ` ORDER BY relevance_score DESC, processed_at DESC LIMIT 50`;
+    sqlQuery += ` ORDER BY relevance_score DESC, upload_date DESC, processed_at DESC LIMIT 50`;
 
     const [rows] = await pool.execute(sqlQuery, params);
 
@@ -1151,6 +1221,7 @@ app.get('/api/search', async (req, res) => {
         summary: decodedSummary,
         keywords: row.keywords,
         processed_at: row.processed_at,
+        upload_date: row.upload_date,
         thumbnail_url: row.thumbnail_url,
         relevance_score: row.relevance_score,
         context_snippets: snippets,

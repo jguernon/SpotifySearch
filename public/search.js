@@ -71,7 +71,12 @@ function sortResults(sortType) {
   if (sortType === 'relevance') {
     sortedResults.sort((a, b) => (b.relevance_score || 0) - (a.relevance_score || 0));
   } else if (sortType === 'newest') {
-    sortedResults.sort((a, b) => new Date(b.processed_at || 0) - new Date(a.processed_at || 0));
+    // Sort by upload_date (actual video publish date), fallback to processed_at
+    sortedResults.sort((a, b) => {
+      const dateA = a.upload_date ? new Date(a.upload_date) : new Date(a.processed_at || 0);
+      const dateB = b.upload_date ? new Date(b.upload_date) : new Date(b.processed_at || 0);
+      return dateB - dateA;
+    });
   }
 
   // Re-render results
@@ -226,6 +231,11 @@ function createEpisodeCard(episode, searchQuery = null) {
   // Generate Spotify search URL
   const spotifySearchUrl = episode.spotify_search_url || `https://open.spotify.com/search/${encodeURIComponent(title)}`;
 
+  // Format upload date
+  const uploadDateStr = episode.upload_date
+    ? new Date(episode.upload_date).toLocaleDateString(currentLanguage === 'fr' ? 'fr-FR' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+    : null;
+
   return `
     <div class="episode-card">
       <div class="episode-card-content">
@@ -235,7 +245,10 @@ function createEpisodeCard(episode, searchQuery = null) {
         <div class="episode-details">
           <div class="episode-card-header">
             <h3>${escapeHtml(title)}</h3>
-            ${episode.relevance_score ? `<span class="relevance-badge">${Math.round(episode.relevance_score)}% match</span>` : ''}
+            <div class="episode-meta">
+              ${uploadDateStr ? `<span class="upload-date">${uploadDateStr}</span>` : ''}
+              ${episode.relevance_score ? `<span class="relevance-badge">${Math.round(episode.relevance_score)}% match</span>` : ''}
+            </div>
           </div>
           <p class="summary">${summary}</p>
           ${snippetsHtml}

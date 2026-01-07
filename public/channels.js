@@ -171,11 +171,28 @@ function createChannelCard(channel) {
     ? `AI processed: ${new Date(channel.ai_processed_at).toLocaleString()}`
     : 'AI not processed';
 
+  // Format dates
+  const newestVideoDate = channel.newest_video_date
+    ? new Date(channel.newest_video_date).toLocaleDateString()
+    : 'N/A';
+  const lastChecked = channel.last_checked
+    ? new Date(channel.last_checked).toLocaleString()
+    : 'Never';
+  const lastVideoOnYoutube = channel.last_video_date_on_youtube
+    ? new Date(channel.last_video_date_on_youtube).toLocaleDateString()
+    : 'N/A';
+
+  // New videos indicator
+  const hasNewVideos = channel.has_new_videos;
+  const newVideosIndicator = hasNewVideos
+    ? '<span class="new-videos-badge">New videos available!</span>'
+    : '';
+
   return `
-    <div class="channel-card" data-channel="${escapeHtml(channel.channel_name)}">
+    <div class="channel-card ${hasNewVideos ? 'has-new-videos' : ''}" data-channel="${escapeHtml(channel.channel_name)}">
       <div class="channel-header">
         <div class="channel-info">
-          <h3>${escapeHtml(channel.channel_name)}</h3>
+          <h3>${escapeHtml(channel.channel_name)} ${newVideosIndicator}</h3>
           <p class="channel-url">${escapeHtml(channel.channel_url || 'No URL saved')}</p>
         </div>
       </div>
@@ -195,6 +212,21 @@ function createChannelCard(channel) {
         </div>
       </div>
 
+      <div class="channel-dates">
+        <div class="date-info">
+          <span class="date-label">Newest indexed:</span>
+          <span class="date-value">${newestVideoDate}</span>
+        </div>
+        <div class="date-info">
+          <span class="date-label">Latest on YouTube:</span>
+          <span class="date-value ${hasNewVideos ? 'highlight' : ''}">${lastVideoOnYoutube}</span>
+        </div>
+        <div class="date-info">
+          <span class="date-label">Last checked:</span>
+          <span class="date-value">${lastChecked}</span>
+        </div>
+      </div>
+
       <div class="video-progress">
         <div class="video-progress-bar">
           <div class="video-progress-fill" style="width: ${percentage}%"></div>
@@ -203,13 +235,13 @@ function createChannelCard(channel) {
       </div>
 
       <div class="channel-actions">
-        ${hasMissing ? `
+        ${hasMissing || hasNewVideos ? `
           <button class="channel-btn primary" onclick="processMissingVideos('${escapeHtml(channel.channel_name)}', '${escapeHtml(channel.channel_url || '')}')">
-            Process Missing Videos
+            ${hasNewVideos ? 'Process New Videos' : 'Process Missing Videos'}
           </button>
         ` : ''}
         <button class="channel-btn secondary" onclick="refreshChannelCount('${escapeHtml(channel.channel_name)}', '${escapeHtml(channel.channel_url || '')}')">
-          Refresh Video Count
+          Check for Updates
         </button>
       </div>
     </div>
@@ -437,6 +469,14 @@ async function refreshChannelCount(channelName, channelUrl) {
   hideError();
   hideSuccess();
 
+  // Find the button and show loading state
+  const card = document.querySelector(`[data-channel="${channelName}"]`);
+  const btn = card?.querySelector('.channel-btn.secondary');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Checking...';
+  }
+
   try {
     const response = await fetch(`${API_BASE}/api/refresh-channel-count`, {
       method: 'POST',
@@ -450,11 +490,27 @@ async function refreshChannelCount(channelName, channelUrl) {
       throw new Error(data.error || 'Failed to refresh count');
     }
 
-    showSuccess(`Updated video count for ${channelName}: ${data.totalVideos} videos available`);
+    // Show detailed result
+    let message = `${channelName}: ${data.totalVideos} videos available.`;
+    if (data.lastVideoDate) {
+      message += ` Latest video: ${new Date(data.lastVideoDate).toLocaleDateString()}.`;
+    }
+    if (data.hasNewVideos) {
+      message += ' NEW VIDEOS AVAILABLE!';
+    } else if (data.newestInDb) {
+      message += ' All videos indexed.';
+    }
+
+    showSuccess(message);
     loadChannels();
 
   } catch (error) {
     showError('Failed to refresh count: ' + error.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Check for Updates';
+    }
   }
 }
 

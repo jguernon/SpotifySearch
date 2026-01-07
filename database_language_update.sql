@@ -31,6 +31,26 @@ ALTER TABLE keywords ADD UNIQUE INDEX idx_keyword_lang (keyword, language);
 ALTER TABLE channels
 ADD COLUMN IF NOT EXISTS language VARCHAR(2) DEFAULT 'en';
 
--- Add indexes for language filtering
+-- Add indexes for language filtering (use IF NOT EXISTS workaround)
+-- Note: MySQL doesn't support IF NOT EXISTS for CREATE INDEX, so we ignore errors
 CREATE INDEX idx_podcasts_language ON podcasts(language);
 CREATE INDEX idx_keywords_language ON keywords(language);
+
+-- ============================================
+-- Upload Date Support
+-- ============================================
+
+-- Add upload_date column to podcasts table (the actual YouTube video publish date)
+ALTER TABLE podcasts
+ADD COLUMN IF NOT EXISTS upload_date DATE DEFAULT NULL;
+
+-- Add index for sorting by upload date
+CREATE INDEX idx_podcasts_upload_date ON podcasts(upload_date);
+
+-- Add last_video_date to channels table (to track newest video date on YouTube)
+ALTER TABLE channels
+ADD COLUMN IF NOT EXISTS last_video_date DATE DEFAULT NULL;
+
+-- Add last_checked to channels table (when we last checked for new videos)
+ALTER TABLE channels
+ADD COLUMN IF NOT EXISTS last_checked DATETIME DEFAULT NULL;

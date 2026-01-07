@@ -133,6 +133,61 @@
   color: #ff5252;
 }
 
+/* Channel Dates */
+.channel-dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  margin-bottom: 15px;
+  padding: 10px 15px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+}
+
+.date-info {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.date-label {
+  color: #666;
+  font-size: 0.8rem;
+}
+
+.date-value {
+  color: #b3b3b3;
+  font-size: 0.85rem;
+}
+
+.date-value.highlight {
+  color: #1db954;
+  font-weight: 600;
+}
+
+/* New Videos Badge */
+.new-videos-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  background: rgba(29, 185, 84, 0.2);
+  color: #1db954;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 12px;
+  margin-left: 10px;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.channel-card.has-new-videos {
+  border-color: rgba(29, 185, 84, 0.5);
+  background: rgba(29, 185, 84, 0.05);
+}
+
 /* Progress Bar in Card */
 .video-progress {
   margin-bottom: 15px;
