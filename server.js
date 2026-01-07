@@ -432,6 +432,10 @@ async function processChannelAsync(jobId, channelUrl, maxVideos, language = 'en'
 
     console.log(`[${jobId}] Found ${allVideos.length} videos, ${skippedCount} already processed, ${newVideos.length} new to process`);
 
+    // Store channel URL for later use (will be updated with channel_name after first video is processed)
+    job.channelUrl = channelUrl;
+    job.totalVideosOnYoutube = allVideos.length;
+
     for (let i = 0; i < newVideos.length; i++) {
       const video = newVideos[i];
       job.currentVideo = video.title;
@@ -455,6 +459,24 @@ async function processChannelAsync(jobId, channelUrl, maxVideos, language = 'en'
             id: result.id,
             summary: result.summary
           });
+
+          // Save channel URL to channels table after first successful video
+          if (job.processed === 1 && result.channel && job.channelUrl) {
+            try {
+              await pool.execute(`
+                INSERT INTO channels (channel_name, channel_url, total_videos, last_checked, updated_at)
+                VALUES (?, ?, ?, NOW(), NOW())
+                ON DUPLICATE KEY UPDATE
+                  channel_url = COALESCE(channel_url, VALUES(channel_url)),
+                  total_videos = VALUES(total_videos),
+                  last_checked = NOW(),
+                  updated_at = NOW()
+              `, [result.channel, job.channelUrl, job.totalVideosOnYoutube]);
+              console.log(`[${jobId}] Saved channel URL for ${result.channel}`);
+            } catch (dbError) {
+              console.error(`[${jobId}] Failed to save channel URL:`, dbError.message);
+            }
+          }
         }
       } catch (error) {
         console.error(`[${jobId}] Error processing ${video.title}:`, error.message);
@@ -585,11 +607,11 @@ app.get('/api/channels', async (req, res) => {
   }
 });
 
-// Extract channel URL from video URL
+// Extract channel URL from video URL (returns the video URL as fallback - will be resolved on check)
 function extractChannelUrl(videoUrl) {
   if (!videoUrl) return null;
-  // We can't reliably extract channel URL from video URL without API call
-  return null;
+  // Return video URL - the refresh-channel-count endpoint will extract channel from it
+  return videoUrl;
 }
 
 // Refresh channel video count and check for new videos
@@ -603,9 +625,28 @@ app.post('/api/refresh-channel-count', async (req, res) => {
 
     console.log(`[Check Updates] Checking ${channelName} at ${channelUrl}`);
 
+    // If the URL is a video URL (not a channel), extract the channel URL first
+    let actualChannelUrl = channelUrl;
+    const urlType = detectUrlType(channelUrl);
+
+    if (urlType === 'video') {
+      console.log(`[Check Updates] URL is a video, extracting channel URL...`);
+      try {
+        const { stdout } = await execPromise(
+          `yt-dlp --print channel_url --no-download "${channelUrl}"`,
+          { timeout: 30000 }
+        );
+        actualChannelUrl = stdout.trim();
+        console.log(`[Check Updates] Extracted channel URL: ${actualChannelUrl}`);
+      } catch (e) {
+        console.error('[Check Updates] Failed to extract channel URL:', e.message);
+        return res.status(400).json({ error: 'Could not extract channel URL from video. Please provide a channel URL directly.' });
+      }
+    }
+
     // Get all videos from channel to count and find the newest
     const { stdout: allVideosJson } = await execPromise(
-      `yt-dlp --flat-playlist --dump-json "${channelUrl}"`,
+      `yt-dlp --flat-playlist --dump-json "${actualChannelUrl}"`,
       { timeout: 120000, maxBuffer: 50 * 1024 * 1024 }
     );
 
@@ -677,7 +718,7 @@ app.post('/api/refresh-channel-count', async (req, res) => {
 
     console.log(`[Check Updates] Has new videos: ${hasNewVideos}`);
 
-    // Update or insert into channels table
+    // Update or insert into channels table (use actualChannelUrl which is the resolved channel URL)
     await pool.execute(`
       INSERT INTO channels (channel_name, channel_url, total_videos, last_video_date, last_checked, updated_at)
       VALUES (?, ?, ?, ?, NOW(), NOW())
@@ -687,7 +728,7 @@ app.post('/api/refresh-channel-count', async (req, res) => {
         last_video_date = VALUES(last_video_date),
         last_checked = NOW(),
         updated_at = NOW()
-    `, [channelName, channelUrl, totalVideos, lastVideoDate]);
+    `, [channelName, actualChannelUrl, totalVideos, lastVideoDate]);
 
     res.json({
       success: true,
