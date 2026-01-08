@@ -12,6 +12,11 @@
   margin-top: 20px;
 }
 
+.language-toggle-header span {
+  padding-top:6px;
+  color:#666666;
+}
+
 .language-toggle-header .lang-btn {
   padding: 8px 20px;
   background: rgba(255, 255, 255, 0.05);
@@ -93,7 +98,7 @@
   color: #888;
 }
 
-.search-input-wrapper button {
+.search-input-wrapper button, #clearBtn {
   padding: 16px 30px;
   background: #1db954;
   color: #000;
@@ -103,6 +108,12 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.3s;
+}
+
+#clearBtn {
+  padding: 20px 30px !important;
+  border-radius: 30px;
+  background:#666666;
 }
 
 .search-input-wrapper button:hover {
