@@ -13,9 +13,9 @@
       <h1>Channel Management</h1>
       <p class="subtitle">Manage YouTube channels and AI processing</p>
       <nav class="nav-links">
-        <a href="index.html">Home</a>
+        <a href="scan.html">Scan</a>
         <a href="channels.html" class="active">Channels</a>
-        <a href="search.html">Search</a>
+        <a href="index.html">Search</a>
       </nav>
     </header>
 
@@ -42,6 +42,7 @@
             <p><strong>Videos analyzed:</strong> <span id="videosAnalyzed">0</span></p>
             <p><strong>Videos without keywords:</strong> <span id="videosWithoutKeywords">-</span></p>
             <p><strong>Missing thumbnails:</strong> <span id="missingThumbnails">-</span></p>
+            <p><strong>Missing dates:</strong> <span id="missingDates">-</span></p>
           </div>
           <div class="ai-buttons">
             <button id="processNewOnlyBtn" class="primary-btn">
@@ -54,6 +55,10 @@
             </button>
             <button id="backfillThumbnailsBtn" class="secondary-btn">
               <span class="btn-text">Backfill Thumbnails</span>
+              <span class="btn-loading" style="display: none;">Processing...</span>
+            </button>
+            <button id="backfillDatesBtn" class="secondary-btn">
+              <span class="btn-text">Backfill Dates</span>
               <span class="btn-loading" style="display: none;">Processing...</span>
             </button>
           </div>

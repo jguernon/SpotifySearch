@@ -14,7 +14,9 @@ const errorText = document.getElementById('errorText');
 const successMessage = document.getElementById('successMessage');
 const successText = document.getElementById('successText');
 const backfillThumbnailsBtn = document.getElementById('backfillThumbnailsBtn');
+const backfillDatesBtn = document.getElementById('backfillDatesBtn');
 const missingThumbnails = document.getElementById('missingThumbnails');
+const missingDates = document.getElementById('missingDates');
 const processNewOnlyBtn = document.getElementById('processNewOnlyBtn');
 const videosWithoutKeywords = document.getElementById('videosWithoutKeywords');
 
@@ -138,11 +140,18 @@ async function addToBlacklist() {
 // Process New Only button (primary)
 processNewOnlyBtn.addEventListener('click', () => startAiProcessing(true));
 
-// Process All (reprocess) button
-processAiBtn.addEventListener('click', () => startAiProcessing(false));
+// Process All (reprocess) button - with confirmation
+processAiBtn.addEventListener('click', () => {
+  if (confirm('Are you sure you want to reprocess ALL videos? This will re-extract keywords for every video and may take a long time.')) {
+    startAiProcessing(false);
+  }
+});
 
 // Backfill thumbnails button
 backfillThumbnailsBtn.addEventListener('click', startThumbnailBackfill);
+
+// Backfill dates button
+backfillDatesBtn.addEventListener('click', startDateBackfill);
 
 // Load channels list
 async function loadChannels() {
@@ -273,6 +282,7 @@ async function loadAiStatus() {
     videosAnalyzed.textContent = status.videos_analyzed || 0;
     videosWithoutKeywords.textContent = status.videos_without_keywords || 0;
     missingThumbnails.textContent = status.missing_thumbnails || 0;
+    missingDates.textContent = status.missing_dates || 0;
 
     // Update Process New Only button state
     if (status.videos_without_keywords === 0) {
@@ -281,11 +291,18 @@ async function loadAiStatus() {
       processNewOnlyBtn.disabled = false;
     }
 
-    // Update backfill button state
+    // Update backfill thumbnails button state
     if (status.missing_thumbnails === 0) {
       backfillThumbnailsBtn.disabled = true;
     } else {
       backfillThumbnailsBtn.disabled = false;
+    }
+
+    // Update backfill dates button state
+    if (status.missing_dates === 0) {
+      backfillDatesBtn.disabled = true;
+    } else {
+      backfillDatesBtn.disabled = false;
     }
   } catch (error) {
     console.error('Failed to load AI status:', error);
@@ -361,6 +378,43 @@ function setThumbnailLoading(loading) {
   backfillThumbnailsBtn.querySelector('.btn-loading').style.display = loading ? 'inline' : 'none';
 }
 
+// Start date backfill
+async function startDateBackfill() {
+  hideError();
+  hideSuccess();
+  setDateLoading(true);
+  showAiProgress();
+  updateAiProgress(0, 'Starting date backfill...');
+
+  try {
+    const response = await fetch(`${API_BASE}/api/backfill-dates`, {
+      method: 'POST'
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to start date backfill');
+    }
+
+    // Poll for status
+    await pollJobStatus(data.jobId, 'dates');
+
+  } catch (error) {
+    hideAiProgress();
+    showError('Date backfill failed: ' + error.message);
+  } finally {
+    setDateLoading(false);
+  }
+}
+
+// Set date button loading state
+function setDateLoading(loading) {
+  backfillDatesBtn.disabled = loading;
+  backfillDatesBtn.querySelector('.btn-text').style.display = loading ? 'none' : 'inline';
+  backfillDatesBtn.querySelector('.btn-loading').style.display = loading ? 'inline' : 'none';
+}
+
 // Poll job status (works for both AI and thumbnail jobs)
 async function pollJobStatus(jobId, type) {
   let completed = false;
@@ -380,7 +434,9 @@ async function pollJobStatus(jobId, type) {
         const percent = status.total > 0
           ? Math.round((status.processed / status.total) * 100)
           : 0;
-        const label = type === 'thumbnails' ? 'Fetching thumbnails' : 'Extracting keywords';
+        let label = 'Extracting keywords';
+        if (type === 'thumbnails') label = 'Fetching thumbnails';
+        else if (type === 'dates') label = 'Fetching dates';
         updateAiProgress(percent, `Processing ${status.processed}/${status.total}: ${label}...`);
       } else if (status.status === 'completed') {
         completed = true;
@@ -389,6 +445,8 @@ async function pollJobStatus(jobId, type) {
         hideAiProgress();
         if (type === 'thumbnails') {
           showSuccess(`Thumbnail backfill complete! Updated ${status.processed} videos.`);
+        } else if (type === 'dates') {
+          showSuccess(`Date backfill complete! Updated ${status.processed} videos.`);
         } else {
           showSuccess(`AI processing complete! Extracted ${status.keywords_count} keywords from ${status.processed} videos.`);
         }
