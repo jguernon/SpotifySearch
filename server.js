@@ -579,10 +579,15 @@ app.get('/api/channels', async (req, res) => {
 
     const channels = rows.map(row => {
       const stats = statsMap.get(row.channel_name);
+      const totalAvailable = stats?.total_videos || row.videos_processed;
 
-      // Check if there might be new videos (last_video_date from YouTube > our newest_video_date)
+      // Check if there might be new videos:
+      // 1. More videos on YouTube than we have processed
+      // 2. Latest video date on YouTube is newer than our newest
       let hasNewVideos = false;
-      if (stats?.last_video_date && row.newest_video_date) {
+      if (totalAvailable > row.videos_processed) {
+        hasNewVideos = true;
+      } else if (stats?.last_video_date && row.newest_video_date) {
         hasNewVideos = new Date(stats.last_video_date) > new Date(row.newest_video_date);
       }
 
@@ -748,7 +753,7 @@ app.post('/api/refresh-channel-count', async (req, res) => {
 // Process missing videos for a channel
 app.post('/api/process-missing', async (req, res) => {
   try {
-    const { channelName, channelUrl } = req.body;
+    const { channelName, channelUrl, language = 'en' } = req.body;
 
     if (!channelUrl) {
       return res.status(400).json({ error: 'Channel URL is required' });
@@ -767,17 +772,19 @@ app.post('/api/process-missing', async (req, res) => {
     channelJobs.set(jobId, {
       status: 'starting',
       url: channelUrl,
+      channelName: channelName,
       total: 0,
       processed: 0,
       skipped: 0,
       failed: 0,
-      results: []
+      results: [],
+      currentVideo: null
     });
 
     res.json({ success: true, jobId });
 
     // Process in background - only missing videos
-    processMissingVideosAsync(jobId, channelUrl, processedIds);
+    processMissingVideosAsync(jobId, channelUrl, processedIds, language);
 
   } catch (error) {
     console.error('Process missing error:', error);
@@ -786,12 +793,13 @@ app.post('/api/process-missing', async (req, res) => {
 });
 
 // Background processing for missing videos
-async function processMissingVideosAsync(jobId, channelUrl, processedIds) {
+async function processMissingVideosAsync(jobId, channelUrl, processedIds, language = 'en') {
   const job = channelJobs.get(jobId);
 
   try {
     job.status = 'fetching_videos';
-    const allVideos = await getChannelVideos(channelUrl, 500);
+    // Get ALL videos from channel (no limit for missing videos processing)
+    const allVideos = await getChannelVideos(channelUrl, 10000);
 
     // Filter out already processed
     const missingVideos = allVideos.filter(v => !processedIds.has(v.id));
@@ -807,7 +815,7 @@ async function processMissingVideosAsync(jobId, channelUrl, processedIds) {
 
       try {
         console.log(`[${jobId}] Processing ${i + 1}/${missingVideos.length}: ${video.title}`);
-        const result = await processVideo(video.url, video.id);
+        const result = await processVideo(video.url, video.id, false, language);
 
         if (result.skipped) {
           job.skipped++;
@@ -822,11 +830,17 @@ async function processMissingVideosAsync(jobId, channelUrl, processedIds) {
         job.results.push({ title: video.title, status: 'failed', error: error.message });
       }
 
+      // Keep only last 10 results in memory to avoid memory issues with large channels
+      if (job.results.length > 10) {
+        job.results = job.results.slice(-10);
+      }
+
       await new Promise(r => setTimeout(r, 1000));
     }
 
     job.status = 'completed';
     job.currentVideo = null;
+    console.log(`[${jobId}] Completed! Processed: ${job.processed}, Skipped: ${job.skipped}, Failed: ${job.failed}`);
 
   } catch (error) {
     console.error(`[${jobId}] Error:`, error);

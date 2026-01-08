@@ -448,6 +448,10 @@ async function processMissingVideos(channelName, channelUrl) {
     btn.textContent = 'Processing...';
   }
 
+  // Show progress section
+  showAiProgress();
+  updateAiProgress(0, `Starting processing for ${channelName}...`);
+
   try {
     const response = await fetch(`${API_BASE}/api/process-missing`, {
       method: 'POST',
@@ -461,18 +465,63 @@ async function processMissingVideos(channelName, channelUrl) {
       throw new Error(data.error || 'Failed to start processing');
     }
 
-    showSuccess(`Started processing missing videos for ${channelName}. Job ID: ${data.jobId}`);
-
-    // Reload after a delay
-    setTimeout(() => {
-      loadChannels();
-    }, 5000);
+    // Poll for progress
+    await pollChannelJobStatus(data.jobId, channelName, btn);
 
   } catch (error) {
+    hideAiProgress();
     showError('Failed to process missing videos: ' + error.message);
     if (btn) {
       btn.disabled = false;
       btn.textContent = 'Process Missing Videos';
+    }
+  }
+}
+
+// Poll channel job status for progress
+async function pollChannelJobStatus(jobId, channelName, btn) {
+  let completed = false;
+
+  while (!completed) {
+    await sleep(2000);
+
+    try {
+      const response = await fetch(`${API_BASE}/api/channel-status/${jobId}`);
+      const status = await response.json();
+
+      if (status.status === 'error') {
+        throw new Error(status.error || 'Processing failed');
+      }
+
+      if (status.status === 'fetching_videos') {
+        updateAiProgress(0, `Fetching video list for ${channelName}...`);
+      } else if (status.status === 'processing') {
+        const total = status.total || 1;
+        const processed = (status.processed || 0) + (status.skipped || 0) + (status.failed || 0);
+        const percent = Math.round((processed / total) * 100);
+        const currentVideo = status.currentVideo ? `: ${status.currentVideo.substring(0, 50)}...` : '';
+        updateAiProgress(percent, `Processing ${processed}/${total}${currentVideo}`);
+      } else if (status.status === 'completed') {
+        completed = true;
+        updateAiProgress(100, 'Complete!');
+        await sleep(500);
+        hideAiProgress();
+        showSuccess(`Processing complete for ${channelName}! Processed: ${status.processed}, Skipped: ${status.skipped}, Failed: ${status.failed}`);
+        loadChannels();
+        loadAiStatus();
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Process New Videos';
+        }
+      }
+    } catch (error) {
+      hideAiProgress();
+      showError('Processing failed: ' + error.message);
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Process Missing Videos';
+      }
+      return;
     }
   }
 }
