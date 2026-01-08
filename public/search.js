@@ -19,9 +19,11 @@ let indexedStatsLoaded = false;
 // Sort elements
 const sortRelevanceBtn = document.getElementById('sortRelevance');
 const sortNewestBtn = document.getElementById('sortNewest');
+const channelFilters = document.getElementById('channelFilters');
 let currentResults = [];
 let currentQuery = '';
 let currentSort = 'relevance';
+let currentChannelFilter = 'all';
 
 // Language selection
 let currentLanguage = 'en';
@@ -66,21 +68,84 @@ function sortResults(sortType) {
   sortRelevanceBtn.classList.toggle('active', sortType === 'relevance');
   sortNewestBtn.classList.toggle('active', sortType === 'newest');
 
+  // Apply filter and sort, then render
+  renderFilteredResults();
+}
+
+// Filter by channel
+function filterByChannel(channel) {
+  currentChannelFilter = channel;
+
+  // Update button states
+  document.querySelectorAll('.channel-filter-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.channel === channel);
+  });
+
+  // Apply filter and sort, then render
+  renderFilteredResults();
+}
+
+// Render results with current filter and sort
+function renderFilteredResults() {
+  // Filter by channel
+  let filteredResults = currentChannelFilter === 'all'
+    ? [...currentResults]
+    : currentResults.filter(r => r.podcast_name === currentChannelFilter);
+
   // Sort the results
-  const sortedResults = [...currentResults];
-  if (sortType === 'relevance') {
-    sortedResults.sort((a, b) => (b.relevance_score || 0) - (a.relevance_score || 0));
-  } else if (sortType === 'newest') {
-    // Sort by upload_date (actual video publish date), fallback to processed_at
-    sortedResults.sort((a, b) => {
+  if (currentSort === 'relevance') {
+    filteredResults.sort((a, b) => (b.relevance_score || 0) - (a.relevance_score || 0));
+  } else if (currentSort === 'newest') {
+    filteredResults.sort((a, b) => {
       const dateA = a.upload_date ? new Date(a.upload_date) : new Date(a.processed_at || 0);
       const dateB = b.upload_date ? new Date(b.upload_date) : new Date(b.processed_at || 0);
       return dateB - dateA;
     });
   }
 
-  // Re-render results
-  resultsList.innerHTML = sortedResults.map(episode => createEpisodeCard(episode, currentQuery)).join('');
+  // Update count
+  const totalCount = currentResults.length;
+  const filteredCount = filteredResults.length;
+  if (currentChannelFilter === 'all') {
+    resultsCount.textContent = `${totalCount} result${totalCount !== 1 ? 's' : ''}`;
+  } else {
+    resultsCount.textContent = `${filteredCount} of ${totalCount} result${totalCount !== 1 ? 's' : ''}`;
+  }
+
+  // Render results
+  if (filteredResults.length === 0) {
+    resultsList.innerHTML = `
+      <div class="no-results">
+        <h3>No results in this channel</h3>
+        <p>Try selecting "All" or a different channel</p>
+      </div>
+    `;
+  } else {
+    resultsList.innerHTML = filteredResults.map(episode => createEpisodeCard(episode, currentQuery)).join('');
+  }
+}
+
+// Build channel filter buttons from results
+function buildChannelFilters(results) {
+  // Get unique channels with counts
+  const channelCounts = {};
+  results.forEach(r => {
+    const channel = r.podcast_name || 'Unknown';
+    channelCounts[channel] = (channelCounts[channel] || 0) + 1;
+  });
+
+  // Sort channels alphabetically
+  const channels = Object.keys(channelCounts).sort((a, b) => a.localeCompare(b));
+
+  // Build buttons: "All" first, then channels
+  let html = `<button class="channel-filter-btn active" data-channel="all" onclick="filterByChannel('all')">All (${results.length})</button>`;
+
+  channels.forEach(channel => {
+    const escapedChannel = escapeHtml(channel).replace(/'/g, "\\'");
+    html += `<button class="channel-filter-btn" data-channel="${escapeHtml(channel)}" onclick="filterByChannel('${escapedChannel}')">${escapeHtml(channel)} (${channelCounts[channel]})</button>`;
+  });
+
+  channelFilters.innerHTML = html;
 }
 
 // Load data on page load
@@ -147,6 +212,7 @@ async function performSearch(query) {
   setLoading(true);
   resultsSection.style.display = 'block';
   resultsList.innerHTML = '<p class="loading-text">Searching...</p>';
+  channelFilters.innerHTML = '';
 
   try {
     const response = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(query)}&lang=${currentLanguage}`);
@@ -156,6 +222,7 @@ async function performSearch(query) {
     currentResults = results;
     currentQuery = query;
     currentSort = 'relevance';
+    currentChannelFilter = 'all';
 
     // Reset sort buttons
     sortRelevanceBtn.classList.add('active');
@@ -169,13 +236,16 @@ async function performSearch(query) {
         </div>
       `;
       resultsCount.textContent = '0 results';
+      channelFilters.innerHTML = '';
     } else {
       resultsCount.textContent = `${results.length} result${results.length !== 1 ? 's' : ''}`;
+      buildChannelFilters(results);
       resultsList.innerHTML = results.map(episode => createEpisodeCard(episode, query)).join('');
     }
 
   } catch (error) {
     resultsList.innerHTML = '<p class="loading-text">Search failed. Please try again.</p>';
+    channelFilters.innerHTML = '';
     console.error('Search error:', error);
   } finally {
     setLoading(false);

@@ -259,6 +259,68 @@
   font-size: 0.9rem;
 }
 
+/* Channel Filter Row */
+.channel-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.filter-label {
+  color: #888;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.channel-filters {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 5px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(29, 185, 84, 0.5) transparent;
+}
+
+.channel-filters::-webkit-scrollbar {
+  height: 4px;
+}
+
+.channel-filters::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.channel-filters::-webkit-scrollbar-thumb {
+  background: rgba(29, 185, 84, 0.5);
+  border-radius: 2px;
+}
+
+.channel-filter-btn {
+  padding: 6px 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  color: #888;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.channel-filter-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #b3b3b3;
+}
+
+.channel-filter-btn.active {
+  background: rgba(29, 185, 84, 0.2);
+  border-color: rgba(29, 185, 84, 0.4);
+  color: #1db954;
+}
+
 .results-list {
   display: flex;
   flex-direction: column;
