@@ -842,6 +842,45 @@ async function processMissingVideosAsync(jobId, channelUrl, processedIds, langua
     job.currentVideo = null;
     console.log(`[${jobId}] Completed! Processed: ${job.processed}, Skipped: ${job.skipped}, Failed: ${job.failed}`);
 
+    // Update total_videos in channels table to reflect reality
+    // If we processed all available videos (no more missing), update total_videos to match
+    if (job.channelName) {
+      try {
+        const [countResult] = await pool.execute(
+          'SELECT COUNT(*) as count FROM podcasts WHERE podcast_name = ?',
+          [job.channelName]
+        );
+        const actualProcessed = countResult[0]?.count || 0;
+
+        // If job.total was 0 (no missing videos found) or we processed/skipped everything,
+        // it means we've caught up - update total_videos to match our indexed count
+        const allDone = job.total === 0 || (job.processed + job.skipped + job.failed >= job.total);
+
+        if (allDone) {
+          // We've processed everything available, update total_videos to match indexed
+          await pool.execute(`
+            UPDATE channels
+            SET total_videos = ?,
+                last_checked = NOW(),
+                updated_at = NOW()
+            WHERE channel_name = ?
+          `, [actualProcessed, job.channelName]);
+          console.log(`[${jobId}] Updated channel: ${actualProcessed} total videos (all caught up)`);
+        } else {
+          // Still more to process, just update last_checked
+          await pool.execute(`
+            UPDATE channels
+            SET last_checked = NOW(),
+                updated_at = NOW()
+            WHERE channel_name = ?
+          `, [job.channelName]);
+          console.log(`[${jobId}] Updated last_checked for ${job.channelName}`);
+        }
+      } catch (dbError) {
+        console.error(`[${jobId}] Failed to update channel stats:`, dbError.message);
+      }
+    }
+
   } catch (error) {
     console.error(`[${jobId}] Error:`, error);
     job.status = 'error';
