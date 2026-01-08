@@ -939,13 +939,15 @@ app.get('/api/ai-status', async (req, res) => {
     const [lastProcessed] = await pool.execute('SELECT MAX(ai_processed_at) as last FROM podcasts WHERE ai_processed_at IS NOT NULL');
     const [missingThumbnails] = await pool.execute('SELECT COUNT(*) as count FROM podcasts WHERE thumbnail_url IS NULL OR thumbnail_url = ""');
     const [videosWithoutKeywords] = await pool.execute('SELECT COUNT(*) as count FROM podcasts WHERE keywords IS NULL OR keywords = ""');
+    const [missingDates] = await pool.execute('SELECT COUNT(*) as count FROM podcasts WHERE upload_date IS NULL');
 
     res.json({
       total_keywords: keywordCount[0].count || 0,
       videos_analyzed: videoCount[0].count || 0,
       last_processed: lastProcessed[0].last,
       missing_thumbnails: missingThumbnails[0].count || 0,
-      videos_without_keywords: videosWithoutKeywords[0].count || 0
+      videos_without_keywords: videosWithoutKeywords[0].count || 0,
+      missing_dates: missingDates[0].count || 0
     });
   } catch (error) {
     console.error('AI status error:', error);
@@ -1490,6 +1492,85 @@ async function backfillThumbnailsAsync(jobId) {
 
   } catch (error) {
     console.error(`[Thumbnails-${jobId}] Error:`, error);
+    job.status = 'error';
+    job.error = error.message;
+  }
+}
+
+// ============================================
+// DATE BACKFILL ENDPOINT
+// ============================================
+
+// Backfill upload dates for existing videos
+app.post('/api/backfill-dates', async (req, res) => {
+  try {
+    const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+
+    aiJobs.set(jobId, {
+      status: 'starting',
+      total: 0,
+      processed: 0,
+      type: 'dates'
+    });
+
+    res.json({ success: true, jobId });
+
+    // Process in background
+    backfillDatesAsync(jobId);
+
+  } catch (error) {
+    console.error('Backfill dates error:', error);
+    res.status(500).json({ error: 'Failed to start date backfill' });
+  }
+});
+
+// Background date backfill
+async function backfillDatesAsync(jobId) {
+  const job = aiJobs.get(jobId);
+
+  try {
+    // Get videos without upload_date
+    const [videos] = await pool.execute(`
+      SELECT id, spotify_url, episode_title
+      FROM podcasts
+      WHERE upload_date IS NULL
+    `);
+
+    job.total = videos.length;
+    job.status = 'processing';
+
+    console.log(`[Dates-${jobId}] Backfilling ${videos.length} videos`);
+
+    for (let i = 0; i < videos.length; i++) {
+      const video = videos[i];
+
+      try {
+        const ytInfo = await getYoutubeInfo(video.spotify_url);
+
+        if (ytInfo.uploadDate) {
+          await pool.execute(
+            'UPDATE podcasts SET upload_date = ? WHERE id = ?',
+            [ytInfo.uploadDate, video.id]
+          );
+          console.log(`[Dates-${jobId}] Updated ${i + 1}/${videos.length}: ${video.episode_title}`);
+        }
+
+        job.processed++;
+
+        // Rate limiting
+        await new Promise(r => setTimeout(r, 300));
+
+      } catch (error) {
+        console.error(`[Dates-${jobId}] Error on video ${video.id}:`, error.message);
+        job.processed++;
+      }
+    }
+
+    job.status = 'completed';
+    console.log(`[Dates-${jobId}] Completed! ${job.processed} dates updated`);
+
+  } catch (error) {
+    console.error(`[Dates-${jobId}] Error:`, error);
     job.status = 'error';
     job.error = error.message;
   }
