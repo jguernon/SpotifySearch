@@ -54,3 +54,21 @@ ADD COLUMN IF NOT EXISTS last_video_date DATE DEFAULT NULL;
 -- Add last_checked to channels table (when we last checked for new videos)
 ALTER TABLE channels
 ADD COLUMN IF NOT EXISTS last_checked DATETIME DEFAULT NULL;
+
+-- ============================================
+-- Skipped Videos Tracking
+-- ============================================
+
+-- Create table to track videos that were skipped (no subtitles, failed, etc.)
+-- This prevents re-processing the same videos over and over
+CREATE TABLE IF NOT EXISTS skipped_videos (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  video_id VARCHAR(20) NOT NULL UNIQUE,
+  video_url VARCHAR(500) NOT NULL,
+  channel_name VARCHAR(255),
+  video_title VARCHAR(500),
+  skip_reason VARCHAR(100) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_skipped_channel (channel_name),
+  INDEX idx_skipped_reason (skip_reason)
+);

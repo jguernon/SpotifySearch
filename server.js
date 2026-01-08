@@ -218,7 +218,7 @@ function parseVTT(vttContent) {
 
 // Process a single video and save to database
 async function processVideo(url, videoId, skipExisting = true, language = 'en') {
-  // Check if already processed
+  // Check if already processed in podcasts
   if (skipExisting) {
     const [existing] = await pool.execute(
       'SELECT id FROM podcasts WHERE spotify_url = ?',
@@ -226,6 +226,15 @@ async function processVideo(url, videoId, skipExisting = true, language = 'en') 
     );
     if (existing.length > 0) {
       return { skipped: true, reason: 'already_processed' };
+    }
+
+    // Also check if it was previously skipped
+    const [skipped] = await pool.execute(
+      'SELECT id, skip_reason FROM skipped_videos WHERE video_id = ?',
+      [videoId]
+    );
+    if (skipped.length > 0) {
+      return { skipped: true, reason: skipped[0].skip_reason };
     }
   }
 
@@ -236,7 +245,17 @@ async function processVideo(url, videoId, skipExisting = true, language = 'en') 
   const transcript = await downloadSubtitles(url, videoId, language);
 
   if (!transcript || transcript.length < 50) {
-    return { skipped: true, reason: 'no_subtitles' };
+    // Save to skipped_videos table so we don't retry this video
+    try {
+      await pool.execute(
+        `INSERT IGNORE INTO skipped_videos (video_id, video_url, channel_name, video_title, skip_reason)
+         VALUES (?, ?, ?, ?, ?)`,
+        [videoId, url, ytInfo.channel || 'Unknown', ytInfo.title || 'Unknown', 'no_subtitles']
+      );
+    } catch (e) {
+      // Ignore errors (duplicate key, etc.)
+    }
+    return { skipped: true, reason: 'no_subtitles', channel: ytInfo.channel, title: ytInfo.title };
   }
 
   // Language-specific instructions for Gemini
@@ -575,17 +594,29 @@ app.get('/api/channels', async (req, res) => {
       WHERE channel_name IS NOT NULL
     `);
 
+    // Get skipped videos count per channel
+    const [skippedStats] = await pool.execute(`
+      SELECT channel_name, COUNT(*) as skipped_count
+      FROM skipped_videos
+      GROUP BY channel_name
+    `);
+    const skippedMap = new Map(skippedStats.map(s => [s.channel_name, s.skipped_count]));
+
     const statsMap = new Map(channelStats.map(c => [c.channel_name, c]));
 
     const channels = rows.map(row => {
       const stats = statsMap.get(row.channel_name);
+      const skippedCount = skippedMap.get(row.channel_name) || 0;
       const totalAvailable = stats?.total_videos || row.videos_processed;
 
+      // Total "handled" = processed + skipped (videos we've already tried)
+      const totalHandled = row.videos_processed + skippedCount;
+
       // Check if there might be new videos:
-      // 1. More videos on YouTube than we have processed
+      // 1. More videos on YouTube than we have handled (processed + skipped)
       // 2. Latest video date on YouTube is newer than our newest
       let hasNewVideos = false;
-      if (totalAvailable > row.videos_processed) {
+      if (totalAvailable > totalHandled) {
         hasNewVideos = true;
       } else if (stats?.last_video_date && row.newest_video_date) {
         hasNewVideos = new Date(stats.last_video_date) > new Date(row.newest_video_date);
@@ -595,6 +626,7 @@ app.get('/api/channels', async (req, res) => {
         channel_name: row.channel_name,
         channel_url: stats?.channel_url || extractChannelUrl(row.channel_url),
         videos_processed: row.videos_processed,
+        videos_skipped: skippedCount,
         total_available: stats?.total_videos || row.videos_processed,
         last_processed: row.last_processed,
         ai_processed_at: row.ai_processed_at,
@@ -765,6 +797,13 @@ app.post('/api/process-missing', async (req, res) => {
       [channelName]
     );
     const processedIds = new Set(processed.map(p => extractYoutubeId(p.spotify_url)));
+
+    // Also get skipped video IDs to exclude them
+    const [skippedVideos] = await pool.execute(
+      'SELECT video_id FROM skipped_videos WHERE channel_name = ?',
+      [channelName]
+    );
+    skippedVideos.forEach(s => processedIds.add(s.video_id));
 
     // Start background job
     const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2);

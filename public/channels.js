@@ -168,10 +168,13 @@ async function loadChannels() {
 
 // Create channel card HTML
 function createChannelCard(channel) {
+  const skippedCount = channel.videos_skipped || 0;
+  const totalHandled = channel.videos_processed + skippedCount;
   const percentage = channel.total_available > 0
-    ? Math.round((channel.videos_processed / channel.total_available) * 100)
+    ? Math.round((totalHandled / channel.total_available) * 100)
     : 100;
-  const hasMissing = channel.total_available > channel.videos_processed;
+  const actualMissing = Math.max(0, channel.total_available - totalHandled);
+  const hasMissing = actualMissing > 0;
   const aiStatus = channel.ai_processed_at
     ? `AI processed: ${new Date(channel.ai_processed_at).toLocaleString()}`
     : 'AI not processed';
@@ -205,15 +208,19 @@ function createChannelCard(channel) {
       <div class="channel-stats">
         <div class="stat">
           <div class="stat-value">${channel.videos_processed}</div>
-          <div class="stat-label">Processed</div>
+          <div class="stat-label">Indexed</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">${skippedCount}</div>
+          <div class="stat-label">Skipped</div>
         </div>
         <div class="stat ${hasMissing ? 'warning' : ''}">
           <div class="stat-value">${channel.total_available}</div>
-          <div class="stat-label">Available</div>
+          <div class="stat-label">On YouTube</div>
         </div>
         <div class="stat ${hasMissing ? 'error' : ''}">
-          <div class="stat-value">${channel.total_available - channel.videos_processed}</div>
-          <div class="stat-label">Missing</div>
+          <div class="stat-value">${actualMissing}</div>
+          <div class="stat-label">To Process</div>
         </div>
       </div>
 
