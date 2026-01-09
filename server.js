@@ -38,6 +38,15 @@ const channelJobs = new Map();
 // Track AI processing jobs
 const aiJobs = new Map();
 
+// yt-dlp options for age-restricted videos
+// For local dev: use browser cookies (set YT_DLP_BROWSER to firefox, chrome, etc.)
+// For production/Railway: use a cookies file (set YT_DLP_COOKIES_FILE to the path)
+const YT_DLP_COOKIES_FILE = process.env.YT_DLP_COOKIES_FILE; // e.g., './cookies.txt'
+const YT_DLP_BROWSER = process.env.YT_DLP_BROWSER || 'firefox';
+const YT_DLP_OPTS = YT_DLP_COOKIES_FILE
+  ? `--cookies "${YT_DLP_COOKIES_FILE}" --age-limit 99`
+  : `--cookies-from-browser ${YT_DLP_BROWSER} --age-limit 99`;
+
 // Detect URL type
 function detectUrlType(url) {
   if (url.includes('/watch?v=') || url.includes('youtu.be/')) {
@@ -69,7 +78,7 @@ async function getChannelVideos(channelUrl, maxVideos = 50) {
 
   try {
     const { stdout } = await execPromise(
-      `yt-dlp --flat-playlist --dump-json --playlist-end ${maxVideos} "${channelUrl}"`,
+      `yt-dlp ${YT_DLP_OPTS} --flat-playlist --dump-json --playlist-end ${maxVideos} "${channelUrl}"`,
       { timeout: 120000, maxBuffer: 50 * 1024 * 1024 }
     );
 
@@ -103,7 +112,7 @@ async function getChannelVideos(channelUrl, maxVideos = 50) {
 async function getYoutubeInfo(youtubeUrl) {
   try {
     const { stdout } = await execPromise(
-      `yt-dlp --dump-json --no-download "${youtubeUrl}"`,
+      `yt-dlp ${YT_DLP_OPTS} --dump-json --no-download "${youtubeUrl}"`,
       { timeout: 30000 }
     );
     const info = JSON.parse(stdout);
@@ -150,7 +159,7 @@ async function downloadSubtitles(youtubeUrl, videoId, language = 'en') {
 
   try {
     // First try to get subtitles in the requested language
-    const cmd = `yt-dlp --skip-download --write-auto-subs --sub-lang "${subLang}" --sub-format vtt -o "${outputPath}" --no-playlist "${youtubeUrl}"`;
+    const cmd = `yt-dlp ${YT_DLP_OPTS} --skip-download --write-auto-subs --sub-lang "${subLang}" --sub-format vtt -o "${outputPath}" --no-playlist "${youtubeUrl}"`;
     await execPromise(cmd, { timeout: 60000 });
 
     const files = fs.readdirSync(TEMP_DIR).filter(f => f.startsWith(videoId) && f.endsWith('.vtt'));
@@ -163,7 +172,7 @@ async function downloadSubtitles(youtubeUrl, videoId, language = 'en') {
     }
 
     // Try any language as fallback
-    const cmd2 = `yt-dlp --skip-download --write-auto-subs --sub-format vtt -o "${outputPath}" --no-playlist "${youtubeUrl}"`;
+    const cmd2 = `yt-dlp ${YT_DLP_OPTS} --skip-download --write-auto-subs --sub-format vtt -o "${outputPath}" --no-playlist "${youtubeUrl}"`;
     await execPromise(cmd2, { timeout: 60000 });
 
     const files2 = fs.readdirSync(TEMP_DIR).filter(f => f.startsWith(videoId) && f.endsWith('.vtt'));
@@ -670,7 +679,7 @@ app.post('/api/refresh-channel-count', async (req, res) => {
       console.log(`[Check Updates] URL is a video, extracting channel URL...`);
       try {
         const { stdout } = await execPromise(
-          `yt-dlp --print channel_url --no-download "${channelUrl}"`,
+          `yt-dlp ${YT_DLP_OPTS} --print channel_url --no-download "${channelUrl}"`,
           { timeout: 30000 }
         );
         actualChannelUrl = stdout.trim();
@@ -683,7 +692,7 @@ app.post('/api/refresh-channel-count', async (req, res) => {
 
     // Get all videos from channel to count and find the newest
     const { stdout: allVideosJson } = await execPromise(
-      `yt-dlp --flat-playlist --dump-json "${actualChannelUrl}"`,
+      `yt-dlp ${YT_DLP_OPTS} --flat-playlist --dump-json "${actualChannelUrl}"`,
       { timeout: 120000, maxBuffer: 50 * 1024 * 1024 }
     );
 
@@ -699,7 +708,7 @@ app.post('/api/refresh-channel-count', async (req, res) => {
       if (firstVideo.id) {
         try {
           const { stdout: videoInfo } = await execPromise(
-            `yt-dlp --dump-json --no-download "https://www.youtube.com/watch?v=${firstVideo.id}"`,
+            `yt-dlp ${YT_DLP_OPTS} --dump-json --no-download "https://www.youtube.com/watch?v=${firstVideo.id}"`,
             { timeout: 30000 }
           );
           const info = JSON.parse(videoInfo);
