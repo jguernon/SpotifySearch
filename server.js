@@ -39,13 +39,19 @@ const channelJobs = new Map();
 const aiJobs = new Map();
 
 // yt-dlp options for age-restricted videos
-// For local dev: use browser cookies (set YT_DLP_BROWSER to firefox, chrome, etc.)
-// For production/Railway: use a cookies file (set YT_DLP_COOKIES_FILE to the path)
-const YT_DLP_COOKIES_FILE = process.env.YT_DLP_COOKIES_FILE; // e.g., './cookies.txt'
-const YT_DLP_BROWSER = process.env.YT_DLP_BROWSER || 'firefox';
-const YT_DLP_OPTS = YT_DLP_COOKIES_FILE
-  ? `--cookies "${YT_DLP_COOKIES_FILE}" --age-limit 99`
-  : `--cookies-from-browser ${YT_DLP_BROWSER} --age-limit 99`;
+// Set YT_DLP_COOKIES_FILE for production (e.g., './cookies.txt')
+// Set YT_DLP_BROWSER for local dev (e.g., 'chrome', 'firefox')
+// If neither is set, runs without cookies (age-restricted videos will fail)
+const YT_DLP_COOKIES_FILE = process.env.YT_DLP_COOKIES_FILE;
+const YT_DLP_BROWSER = process.env.YT_DLP_BROWSER;
+let YT_DLP_OPTS = '';
+if (YT_DLP_COOKIES_FILE) {
+  YT_DLP_OPTS = `--cookies "${YT_DLP_COOKIES_FILE}"`;
+} else if (YT_DLP_BROWSER) {
+  YT_DLP_OPTS = `--cookies-from-browser ${YT_DLP_BROWSER}`;
+}
+// Always add age-limit
+YT_DLP_OPTS += ' --age-limit 99';
 
 // Detect URL type
 function detectUrlType(url) {
