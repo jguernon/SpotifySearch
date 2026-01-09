@@ -261,6 +261,11 @@ function createChannelCard(channel) {
             ${hasNewVideos ? 'Process New Videos' : 'Process Missing Videos'}
           </button>
         ` : ''}
+        ${skippedCount > 0 ? `
+          <button class="channel-btn warning" onclick="retrySkippedVideos('${escapeHtml(channel.channel_name)}', '${escapeHtml(channel.channel_url || '')}')">
+            Retry Skipped (${skippedCount})
+          </button>
+        ` : ''}
         <button class="channel-btn secondary" onclick="refreshChannelCount('${escapeHtml(channel.channel_name)}', '${escapeHtml(channel.channel_url || '')}')">
           Check for Updates
         </button>
@@ -587,6 +592,58 @@ async function pollChannelJobStatus(jobId, channelName, btn) {
         btn.textContent = 'Process Missing Videos';
       }
       return;
+    }
+  }
+}
+
+// Retry skipped videos for a channel
+async function retrySkippedVideos(channelName, channelUrl) {
+  if (!channelUrl) {
+    showError('No channel URL saved. Please process the channel from the home page first.');
+    return;
+  }
+
+  if (!confirm(`Are you sure you want to retry all skipped videos for ${channelName}? This will attempt to re-process videos that previously failed (e.g., no subtitles).`)) {
+    return;
+  }
+
+  hideError();
+  hideSuccess();
+
+  // Find the button and disable it
+  const card = document.querySelector(`[data-channel="${channelName}"]`);
+  const btn = card?.querySelector('.channel-btn.warning');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Retrying...';
+  }
+
+  // Show progress section
+  showAiProgress();
+  updateAiProgress(0, `Clearing skipped videos for ${channelName}...`);
+
+  try {
+    const response = await fetch(`${API_BASE}/api/retry-skipped`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelName, channelUrl })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to start retry');
+    }
+
+    // Poll for progress
+    await pollChannelJobStatus(data.jobId, channelName, btn);
+
+  } catch (error) {
+    hideAiProgress();
+    showError('Failed to retry skipped videos: ' + error.message);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Retry Skipped';
     }
   }
 }

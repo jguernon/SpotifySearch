@@ -936,6 +936,107 @@ async function processMissingVideosAsync(jobId, channelUrl, processedIds, langua
   }
 }
 
+// Retry skipped videos for a channel
+app.post('/api/retry-skipped', async (req, res) => {
+  try {
+    const { channelName, channelUrl, language = 'en' } = req.body;
+
+    if (!channelUrl || !channelName) {
+      return res.status(400).json({ error: 'Channel name and URL are required' });
+    }
+
+    // Get skipped videos for this channel
+    const [skippedVideos] = await pool.execute(
+      'SELECT video_id, video_url, video_title FROM skipped_videos WHERE channel_name = ?',
+      [channelName]
+    );
+
+    if (skippedVideos.length === 0) {
+      return res.json({ success: true, message: 'No skipped videos to retry' });
+    }
+
+    // Delete skipped videos entries so they can be reprocessed
+    await pool.execute(
+      'DELETE FROM skipped_videos WHERE channel_name = ?',
+      [channelName]
+    );
+
+    console.log(`[Retry-Skipped] Cleared ${skippedVideos.length} skipped videos for ${channelName}`);
+
+    // Start background job
+    const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+
+    channelJobs.set(jobId, {
+      status: 'starting',
+      url: channelUrl,
+      channelName: channelName,
+      total: skippedVideos.length,
+      processed: 0,
+      skipped: 0,
+      failed: 0,
+      results: [],
+      currentVideo: null
+    });
+
+    res.json({ success: true, jobId, videosToRetry: skippedVideos.length });
+
+    // Process skipped videos in background
+    retrySkippedVideosAsync(jobId, skippedVideos, language);
+
+  } catch (error) {
+    console.error('Retry skipped error:', error);
+    res.status(500).json({ error: 'Failed to start retry: ' + error.message });
+  }
+});
+
+// Background processing for retry skipped videos
+async function retrySkippedVideosAsync(jobId, skippedVideos, language = 'en') {
+  const job = channelJobs.get(jobId);
+
+  try {
+    job.status = 'processing';
+    console.log(`[${jobId}] Retrying ${skippedVideos.length} skipped videos`);
+
+    for (let i = 0; i < skippedVideos.length; i++) {
+      const video = skippedVideos[i];
+      job.currentVideo = video.video_title;
+
+      try {
+        console.log(`[${jobId}] Retrying ${i + 1}/${skippedVideos.length}: ${video.video_title}`);
+        const result = await processVideo(video.video_url, video.video_id, false, language);
+
+        if (result.skipped) {
+          job.skipped++;
+          job.results.push({ title: video.video_title, status: 'skipped', reason: result.reason });
+        } else {
+          job.processed++;
+          job.results.push({ title: video.video_title, status: 'success', id: result.id });
+        }
+      } catch (error) {
+        console.error(`[${jobId}] Error:`, error.message);
+        job.failed++;
+        job.results.push({ title: video.video_title, status: 'failed', error: error.message });
+      }
+
+      // Keep only last 10 results in memory
+      if (job.results.length > 10) {
+        job.results = job.results.slice(-10);
+      }
+
+      await new Promise(r => setTimeout(r, 1000));
+    }
+
+    job.status = 'completed';
+    job.currentVideo = null;
+    console.log(`[${jobId}] Retry completed! Processed: ${job.processed}, Skipped: ${job.skipped}, Failed: ${job.failed}`);
+
+  } catch (error) {
+    console.error(`[${jobId}] Error:`, error);
+    job.status = 'error';
+    job.error = error.message;
+  }
+}
+
 // ============================================
 // AI PROCESSING & KEYWORD ENDPOINTS
 // ============================================

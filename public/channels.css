@@ -248,6 +248,16 @@
   background: rgba(29, 185, 84, 0.2);
 }
 
+.channel-btn.warning {
+  background: transparent;
+  color: #ffb74d;
+  border: 1px solid #ffb74d;
+}
+
+.channel-btn.warning:hover {
+  background: rgba(255, 183, 77, 0.2);
+}
+
 .channel-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
