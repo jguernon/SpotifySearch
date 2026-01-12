@@ -2224,11 +2224,13 @@ app.get('/api/admin/logs', verifyAdminSession, (req, res) => {
   res.json(logs.slice(0, parseInt(limit)));
 });
 
-app.listen(PORT, async () => {
+app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log('Supports: YouTube videos, channels, and playlists');
   addLog('info', 'Server started', { port: PORT });
 
-  // Initialize default admin
-  await initDefaultAdmin();
+  // Initialize default admin (non-blocking)
+  initDefaultAdmin().catch(err => {
+    console.log('Could not initialize admin:', err.message);
+  });
 });
