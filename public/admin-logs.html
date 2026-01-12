@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Logs - Admin - YouTube Transcriber</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="logs.css">
   <style>
     .admin-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px; }
     .user-info { display: flex; align-items: center; gap: 15px; }
@@ -12,18 +13,6 @@
     .nav-links { display: flex; gap: 20px; margin-bottom: 30px; flex-wrap: wrap; }
     .nav-links a { color: #667eea; text-decoration: none; padding: 10px 20px; border-radius: 8px; background: rgba(102, 126, 234, 0.1); }
     .nav-links a:hover, .nav-links a.active { background: rgba(102, 126, 234, 0.3); }
-    .logs-section { background: var(--card-bg, #1a1a2e); border-radius: 12px; padding: 20px; }
-    .log-entry { padding: 10px; border-bottom: 1px solid #333; font-family: monospace; font-size: 13px; }
-    .log-entry:last-child { border-bottom: none; }
-    .log-entry .timestamp { color: #888; }
-    .log-entry .type { padding: 2px 8px; border-radius: 4px; font-size: 11px; margin: 0 10px; }
-    .log-entry .type.cron { background: #4a9eff; }
-    .log-entry .type.process { background: #44aa44; }
-    .log-entry .type.ai { background: #aa44aa; }
-    .log-entry .type.error { background: #ff4444; }
-    .log-entry .type.info { background: #666; }
-    .controls { margin-bottom: 20px; display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
-    .controls select, .controls button { padding: 8px 16px; border-radius: 6px; border: 1px solid #333; background: #1a1a2e; color: white; }
   </style>
 </head>
 <body>
@@ -36,6 +25,7 @@
           <button id="logoutBtn" class="logout-btn">Logout</button>
         </div>
       </div>
+      <p class="subtitle">Monitor cron jobs and automated processing</p>
       <nav class="nav-links">
         <a href="admin.html">Dashboard</a>
         <a href="admin-channels.html">Channels</a>
@@ -46,74 +36,73 @@
     </header>
 
     <main>
-      <div class="controls">
-        <label>Filter:</label>
-        <select id="typeFilter">
-          <option value="">All</option>
-          <option value="cron">Cron</option>
-          <option value="process">Process</option>
-          <option value="ai">AI</option>
-          <option value="error">Errors</option>
-          <option value="info">Info</option>
-        </select>
-        <button id="refreshBtn" class="primary-btn">Refresh</button>
-      </div>
+      <!-- Controls -->
+      <section class="controls-section">
+        <div class="filter-controls">
+          <label>Filter by type:</label>
+          <select id="typeFilter">
+            <option value="">All</option>
+            <option value="cron">Cron</option>
+            <option value="process">Process</option>
+            <option value="ai">AI</option>
+            <option value="error">Errors</option>
+            <option value="info">Info</option>
+          </select>
 
+          <label>Limit:</label>
+          <select id="limitFilter">
+            <option value="50">50</option>
+            <option value="100" selected>100</option>
+            <option value="200">200</option>
+            <option value="500">500</option>
+          </select>
+
+          <button id="refreshBtn" class="primary-btn small">Refresh</button>
+          <button id="autoRefreshBtn" class="secondary-btn small">Auto-refresh: OFF</button>
+        </div>
+
+        <div class="cron-controls">
+          <p class="cron-info">
+            <strong>Cron URL:</strong>
+            <code id="cronUrl">/api/cron/process-new?secret=YOUR_SECRET</code>
+          </p>
+          <button id="triggerCronBtn" class="warning-btn small">Trigger Cron Now</button>
+        </div>
+      </section>
+
+      <!-- Stats -->
+      <section class="stats-section">
+        <div class="stat-card">
+          <span class="stat-value" id="totalLogs">0</span>
+          <span class="stat-label">Total Logs</span>
+        </div>
+        <div class="stat-card error">
+          <span class="stat-value" id="errorCount">0</span>
+          <span class="stat-label">Errors</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value" id="processCount">0</span>
+          <span class="stat-label">Processed</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value" id="cronCount">0</span>
+          <span class="stat-label">Cron Runs</span>
+        </div>
+      </section>
+
+      <!-- Logs Table -->
       <section class="logs-section">
-        <div id="logsList">
-          <p>Loading logs...</p>
+        <div id="logsList" class="logs-list">
+          <p class="loading-text">Loading logs...</p>
         </div>
       </section>
     </main>
   </div>
 
   <script src="admin-auth.js"></script>
+  <script src="logs.js"></script>
   <script>
     document.getElementById('logoutBtn').addEventListener('click', adminLogout);
-
-    // API_BASE already defined in admin-auth.js
-
-    async function loadLogs() {
-      const type = document.getElementById('typeFilter').value;
-      const url = type ? `${API_BASE}/api/logs?type=${type}` : `${API_BASE}/api/logs`;
-      const container = document.getElementById('logsList');
-
-      try {
-        console.log('Fetching logs from:', url);
-        const response = await fetch(url);
-        console.log('Response status:', response.status);
-
-        if (!response.ok) {
-          container.innerHTML = `<p>Error: ${response.status} ${response.statusText}</p>`;
-          return;
-        }
-
-        const logs = await response.json();
-        console.log('Logs received:', logs.length);
-
-        if (!logs || logs.length === 0) {
-          container.innerHTML = '<p>No logs found. Logs appear when videos are processed or cron runs.</p>';
-          return;
-        }
-
-        container.innerHTML = logs.map(log => `
-          <div class="log-entry">
-            <span class="timestamp">${new Date(log.timestamp).toLocaleString()}</span>
-            <span class="type ${log.type}">${log.type}</span>
-            <span class="message">${log.message}</span>
-            ${log.details ? `<pre style="margin: 5px 0 0 0; color: #888; font-size: 11px;">${JSON.stringify(log.details, null, 2)}</pre>` : ''}
-          </div>
-        `).join('');
-      } catch (error) {
-        console.error('Load logs error:', error);
-        container.innerHTML = `<p>Error loading logs: ${error.message}</p>`;
-      }
-    }
-
-    document.getElementById('refreshBtn').addEventListener('click', loadLogs);
-    document.getElementById('typeFilter').addEventListener('change', loadLogs);
-
-    loadLogs();
   </script>
 </body>
 </html>
