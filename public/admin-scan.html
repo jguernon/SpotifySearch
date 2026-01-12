@@ -3,18 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>YouTube Transcriber - Powered by Gemini AI</title>
+  <title>Add Channel - Admin - YouTube Transcriber</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="admin.css">
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>YouTube Transcriber</h1>
-      <p class="subtitle">Video Transcript Analyzer powered by Google Gemini AI</p>
+      <div class="header-top">
+        <h1>Add Channel</h1>
+        <div class="user-info">
+          <span id="userEmail">-</span>
+          <button id="logoutBtn" class="logout-btn">Logout</button>
+        </div>
+      </div>
+      <p class="subtitle">Add YouTube videos and channels</p>
       <nav class="nav-links">
-        <a href="scan.html" class="active">Add Channel</a>
-        <a href="channels.html">Channels</a>
-        <a href="index.html">Search</a>
+        <a href="admin.html">Dashboard</a>
+        <a href="admin-channels.html">Channels</a>
+        <a href="admin-scan.html" class="active">Add Channel</a>
+        <a href="admin-logs.html">Logs</a>
+        <a href="index.html" class="public-link">Public Search</a>
       </nav>
     </header>
 
@@ -96,10 +105,11 @@
     </main>
 
     <footer>
-      <p>Powered by Google Gemini AI</p>
+      <p>Admin Panel - Powered by Google Gemini AI</p>
     </footer>
   </div>
 
+  <script src="admin-auth.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

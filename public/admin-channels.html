@@ -3,19 +3,28 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Channel Management - YouTube Transcriber</title>
+  <title>Channels - Admin - YouTube Transcriber</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="admin.css">
   <link rel="stylesheet" href="channels.css">
 </head>
 <body>
   <div class="container wide">
     <header>
-      <h1>Channel Management</h1>
+      <div class="header-top">
+        <h1>Channel Management</h1>
+        <div class="user-info">
+          <span id="userEmail">-</span>
+          <button id="logoutBtn" class="logout-btn">Logout</button>
+        </div>
+      </div>
       <p class="subtitle">Manage YouTube channels and AI processing</p>
       <nav class="nav-links">
-        <a href="scan.html">Add Channel</a>
-        <a href="channels.html" class="active">Channels</a>
-        <a href="index.html">Search</a>
+        <a href="admin.html">Dashboard</a>
+        <a href="admin-channels.html" class="active">Channels</a>
+        <a href="admin-scan.html">Add Channel</a>
+        <a href="admin-logs.html">Logs</a>
+        <a href="index.html" class="public-link">Public Search</a>
       </nav>
     </header>
 
@@ -127,10 +136,11 @@
     </main>
 
     <footer>
-      <p>Powered by Google Gemini AI</p>
+      <p>Admin Panel - Powered by Google Gemini AI</p>
     </footer>
   </div>
 
+  <script src="admin-auth.js"></script>
   <script src="channels.js"></script>
 </body>
 </html>

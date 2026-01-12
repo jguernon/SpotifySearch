@@ -3,20 +3,28 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>System Logs - YouTube Transcriber</title>
+  <title>Logs - Admin - YouTube Transcriber</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="admin.css">
   <link rel="stylesheet" href="logs.css">
 </head>
 <body>
   <div class="container wide">
     <header>
-      <h1>System Logs</h1>
+      <div class="header-top">
+        <h1>System Logs</h1>
+        <div class="user-info">
+          <span id="userEmail">-</span>
+          <button id="logoutBtn" class="logout-btn">Logout</button>
+        </div>
+      </div>
       <p class="subtitle">Monitor cron jobs and automated processing</p>
       <nav class="nav-links">
-        <a href="scan.html">Add Channel</a>
-        <a href="channels.html">Channels</a>
-        <a href="index.html">Search</a>
-        <a href="logs.html" class="active">Logs</a>
+        <a href="admin.html">Dashboard</a>
+        <a href="admin-channels.html">Channels</a>
+        <a href="admin-scan.html">Add Channel</a>
+        <a href="admin-logs.html" class="active">Logs</a>
+        <a href="index.html" class="public-link">Public Search</a>
       </nav>
     </header>
 
@@ -46,7 +54,14 @@
           <button id="autoRefreshBtn" class="secondary-btn small">Auto-refresh: OFF</button>
         </div>
 
-  
+        <div class="cron-controls">
+          <p class="cron-info">
+            <strong>Cron URL:</strong>
+            <code id="cronUrl">/api/cron/process-new?secret=YOUR_SECRET</code>
+          </p>
+          <button id="triggerCronBtn" class="warning-btn small">Trigger Cron Now</button>
+        </div>
+      </section>
 
       <!-- Stats -->
       <section class="stats-section">
@@ -77,10 +92,11 @@
     </main>
 
     <footer>
-      <p>System monitoring</p>
+      <p>Admin Panel - System monitoring</p>
     </footer>
   </div>
 
+  <script src="admin-auth.js"></script>
   <script src="logs.js"></script>
 </body>
 </html>

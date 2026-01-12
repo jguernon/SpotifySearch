@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard - YouTube Transcriber</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+  <div class="container wide">
+    <header>
+      <div class="header-top">
+        <h1>Admin Dashboard</h1>
+        <div class="user-info">
+          <span id="userEmail">-</span>
+          <button id="logoutBtn" class="logout-btn">Logout</button>
+        </div>
+      </div>
+      <p class="subtitle">Manage channels, process videos, and monitor the system</p>
+      <nav class="nav-links">
+        <a href="admin.html" class="active">Dashboard</a>
+        <a href="admin-channels.html">Channels</a>
+        <a href="admin-scan.html">Add Channel</a>
+        <a href="admin-logs.html">Logs</a>
+        <a href="index.html" class="public-link">Public Search</a>
+      </nav>
+    </header>
+
+    <main>
+      <!-- Quick Stats -->
+      <section class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon">📺</div>
+          <div class="stat-value" id="totalChannels">-</div>
+          <div class="stat-label">Channels</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🎬</div>
+          <div class="stat-value" id="totalVideos">-</div>
+          <div class="stat-label">Videos Indexed</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🏷️</div>
+          <div class="stat-value" id="totalKeywords">-</div>
+          <div class="stat-label">Keywords</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">⏭️</div>
+          <div class="stat-value" id="totalSkipped">-</div>
+          <div class="stat-label">Skipped</div>
+        </div>
+      </section>
+
+      <!-- Quick Actions -->
+      <section class="actions-section">
+        <h2>Quick Actions</h2>
+        <div class="action-cards">
+          <a href="admin-scan.html" class="action-card">
+            <div class="action-icon">➕</div>
+            <h3>Add Channel</h3>
+            <p>Add a new YouTube channel to monitor</p>
+          </a>
+          <a href="admin-channels.html" class="action-card">
+            <div class="action-icon">🔄</div>
+            <h3>Manage Channels</h3>
+            <p>Process videos and manage keywords</p>
+          </a>
+          <a href="admin-logs.html" class="action-card">
+            <div class="action-icon">📋</div>
+            <h3>View Logs</h3>
+            <p>Monitor system activity and cron jobs</p>
+          </a>
+        </div>
+      </section>
+
+      <!-- Recent Activity -->
+      <section class="activity-section">
+        <h2>Recent Activity</h2>
+        <div id="recentLogs" class="recent-logs">
+          <p class="loading-text">Loading...</p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Admin Panel - YouTube Transcriber</p>
+    </footer>
+  </div>
+
+  <script src="admin-auth.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>

@@ -6,12 +6,81 @@ const path = require('path');
 const fs = require('fs');
 const { exec } = require('child_process');
 const util = require('util');
+const crypto = require('crypto');
 const execPromise = util.promisify(exec);
 const pool = require('./db');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// ============================================
+// ADMIN AUTHENTICATION
+// ============================================
+
+// Hash password with SHA256 + salt
+function hashPassword(password, salt = null) {
+  if (!salt) {
+    salt = crypto.randomBytes(16).toString('hex');
+  }
+  const hash = crypto.createHash('sha256').update(password + salt).digest('hex');
+  return { hash, salt, combined: `${salt}:${hash}` };
+}
+
+// Verify password
+function verifyPassword(password, storedHash) {
+  const [salt, hash] = storedHash.split(':');
+  const computed = crypto.createHash('sha256').update(password + salt).digest('hex');
+  return computed === hash;
+}
+
+// Generate session token
+function generateToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+// Initialize default admin user if not exists
+async function initDefaultAdmin() {
+  try {
+    const [users] = await pool.execute('SELECT id FROM admin_users LIMIT 1');
+    if (users.length === 0) {
+      const { combined } = hashPassword('Legendre2025!');
+      await pool.execute(
+        'INSERT INTO admin_users (email, password_hash) VALUES (?, ?)',
+        ['jguernon@proton.me', combined]
+      );
+      console.log('Default admin user created: jguernon@proton.me');
+    }
+  } catch (error) {
+    // Table might not exist yet, will be created on first run
+    console.log('Admin table not ready yet, run database_admin.sql first');
+  }
+}
+
+// Verify session token middleware
+async function verifyAdminSession(req, res, next) {
+  const token = req.headers['x-admin-token'] || req.query.token;
+
+  if (!token) {
+    return res.status(401).json({ error: 'No authentication token' });
+  }
+
+  try {
+    const [sessions] = await pool.execute(
+      'SELECT s.*, u.email FROM admin_sessions s JOIN admin_users u ON s.user_id = u.id WHERE s.token = ? AND s.expires_at > NOW()',
+      [token]
+    );
+
+    if (sessions.length === 0) {
+      return res.status(401).json({ error: 'Invalid or expired session' });
+    }
+
+    req.adminUser = sessions[0];
+    next();
+  } catch (error) {
+    res.status(500).json({ error: 'Authentication error' });
+  }
+}
 
 // Initialize Gemini AI
 if (!process.env.GEMINI_API_KEY) {
@@ -1975,8 +2044,127 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.listen(PORT, () => {
+// ============================================
+// ADMIN AUTH ENDPOINTS
+// ============================================
+
+// Login
+app.post('/api/admin/login', async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password required' });
+  }
+
+  try {
+    const [users] = await pool.execute(
+      'SELECT * FROM admin_users WHERE email = ?',
+      [email]
+    );
+
+    if (users.length === 0) {
+      addLog('error', 'Login failed: user not found', { email });
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const user = users[0];
+
+    if (!verifyPassword(password, user.password_hash)) {
+      addLog('error', 'Login failed: wrong password', { email });
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Create session (expires in 7 days)
+    const token = generateToken();
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    await pool.execute(
+      'INSERT INTO admin_sessions (user_id, token, expires_at) VALUES (?, ?, ?)',
+      [user.id, token, expiresAt]
+    );
+
+    // Update last login
+    await pool.execute(
+      'UPDATE admin_users SET last_login = NOW() WHERE id = ?',
+      [user.id]
+    );
+
+    addLog('info', 'Admin login successful', { email });
+
+    res.json({
+      success: true,
+      token,
+      email: user.email,
+      expiresAt: expiresAt.toISOString()
+    });
+
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// Logout
+app.post('/api/admin/logout', async (req, res) => {
+  const token = req.headers['x-admin-token'];
+
+  if (token) {
+    try {
+      await pool.execute('DELETE FROM admin_sessions WHERE token = ?', [token]);
+      addLog('info', 'Admin logout');
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  }
+
+  res.json({ success: true });
+});
+
+// Verify session
+app.get('/api/admin/verify', verifyAdminSession, (req, res) => {
+  res.json({
+    valid: true,
+    email: req.adminUser.email,
+    expiresAt: req.adminUser.expires_at
+  });
+});
+
+// Protected admin endpoints
+app.get('/api/admin/channels', verifyAdminSession, async (req, res) => {
+  // Redirect to existing channels endpoint
+  try {
+    const [rows] = await pool.execute(`
+      SELECT
+        podcast_name as channel_name,
+        COUNT(*) as videos_processed,
+        MAX(ai_processed_at) as ai_processed_at
+      FROM podcasts
+      GROUP BY podcast_name
+      ORDER BY videos_processed DESC
+    `);
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Get logs (protected)
+app.get('/api/admin/logs', verifyAdminSession, (req, res) => {
+  const { limit = 100, type } = req.query;
+  let logs = systemLogs;
+
+  if (type) {
+    logs = logs.filter(l => l.type === type);
+  }
+
+  res.json(logs.slice(0, parseInt(limit)));
+});
+
+app.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log('Supports: YouTube videos, channels, and playlists');
   addLog('info', 'Server started', { port: PORT });
+
+  // Initialize default admin
+  await initDefaultAdmin();
 });
