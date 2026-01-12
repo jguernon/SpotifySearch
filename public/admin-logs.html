@@ -71,7 +71,7 @@
   <script>
     document.getElementById('logoutBtn').addEventListener('click', adminLogout);
 
-    const API_BASE = window.location.origin;
+    // API_BASE already defined in admin-auth.js
 
     async function loadLogs() {
       const type = document.getElementById('typeFilter').value;
