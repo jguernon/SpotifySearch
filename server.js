@@ -2083,8 +2083,28 @@ app.post('/api/admin/logout', async (req, res) => {
   res.json({ success: true });
 });
 
+// Initialize default admin user
+async function initDefaultAdmin() {
+  try {
+    const [users] = await pool.execute('SELECT id FROM admin_users LIMIT 1');
+    if (users.length === 0) {
+      const { combined } = hashPassword('Legendre2025!');
+      await pool.execute(
+        'INSERT INTO admin_users (email, password_hash) VALUES (?, ?)',
+        ['jguernon@proton.me', combined]
+      );
+      console.log('Default admin user created: jguernon@proton.me');
+    }
+  } catch (error) {
+    console.log('Admin table not ready:', error.message);
+  }
+}
+
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log('Supports: YouTube videos, channels, and playlists');
   addLog('info', 'Server started', { port: PORT });
+
+  // Init admin (non-blocking)
+  initDefaultAdmin();
 });
