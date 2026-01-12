@@ -78,6 +78,11 @@ async function verifyAdminSession(req, res, next) {
     req.adminUser = sessions[0];
     next();
   } catch (error) {
+    console.error('Auth middleware error:', error.message);
+    // If tables don't exist, return friendly error
+    if (error.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(500).json({ error: 'Admin system not configured. Please run database_admin.sql on your database.' });
+    }
     res.status(500).json({ error: 'Authentication error' });
   }
 }
@@ -2005,18 +2010,63 @@ app.get('/api/cron/process-new', async (req, res) => {
 // Helper function to process AI for new videos only
 async function processAiForNewVideos() {
   const [videos] = await pool.execute(`
-    SELECT id, episode_title, transcript, summary
+    SELECT id, episode_title, podcast_name, transcript, summary, language
     FROM podcasts
     WHERE (keywords IS NULL OR keywords = '')
     AND transcript IS NOT NULL AND transcript != ''
     LIMIT 50
   `);
 
+  // Get blacklisted keywords
+  let blacklist = new Set();
+  try {
+    const [blacklistRows] = await pool.execute('SELECT keyword FROM keyword_blacklist');
+    blacklist = new Set(blacklistRows.map(r => r.keyword.toLowerCase()));
+  } catch (e) {
+    // Blacklist table might not exist
+  }
+
   for (const video of videos) {
     try {
-      const keywords = await extractKeywordsWithAI(video.transcript, video.summary);
+      const videoLang = video.language || 'en';
+      const textToAnalyze = `Title: ${video.episode_title}\nChannel: ${video.podcast_name}\nSummary: ${video.summary || ''}\n\nTranscript excerpt: ${(video.transcript || '').substring(0, 10000)}`;
 
-      if (keywords && keywords.length > 0) {
+      const langInstructions = {
+        'en': 'Extract keywords in English.',
+        'fr': 'Extrais les mots-clés en français.'
+      };
+      const langInstruction = langInstructions[videoLang] || 'Extract keywords in the same language as the content.';
+
+      const prompt = `Extract 5-10 main keywords/topics from this video content. Return ONLY a JSON array of lowercase keywords, no explanations. Focus on main subjects, people mentioned, concepts discussed.
+
+IMPORTANT: ${langInstruction}
+
+Example output: ["artificial intelligence", "elon musk", "space exploration", "neural networks"]
+
+Content:
+${textToAnalyze}`;
+
+      const result = await model.generateContent(prompt);
+      const text = result.response.text();
+
+      let keywords = [];
+      try {
+        const jsonMatch = text.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          keywords = JSON.parse(jsonMatch[0]);
+        }
+      } catch (e) {
+        keywords = text.split(',').map(k => k.trim().toLowerCase().replace(/["\[\]]/g, '')).filter(k => k.length > 2);
+      }
+
+      // Clean, filter blacklisted, and limit keywords
+      keywords = keywords
+        .map(k => k.toLowerCase().trim())
+        .filter(k => k.length > 2 && k.length < 50)
+        .filter(k => !blacklist.has(k))
+        .slice(0, 10);
+
+      if (keywords.length > 0) {
         // Update video with keywords
         await pool.execute(
           'UPDATE podcasts SET keywords = ?, ai_processed_at = NOW() WHERE id = ?',
@@ -2025,10 +2075,17 @@ async function processAiForNewVideos() {
 
         // Insert into keywords table
         for (const keyword of keywords) {
-          await pool.execute(
-            'INSERT IGNORE INTO keywords (keyword, video_id) VALUES (?, ?)',
-            [keyword.toLowerCase().trim(), video.id]
-          );
+          try {
+            await pool.execute(`
+              INSERT INTO keywords (keyword, language, count, updated_at)
+              VALUES (?, ?, 1, NOW())
+              ON DUPLICATE KEY UPDATE
+                count = count + 1,
+                updated_at = NOW()
+            `, [keyword, videoLang]);
+          } catch (e) {
+            // Ignore keyword insert errors
+          }
         }
       }
     } catch (error) {
@@ -2057,10 +2114,17 @@ app.post('/api/admin/login', async (req, res) => {
   }
 
   try {
-    const [users] = await pool.execute(
-      'SELECT * FROM admin_users WHERE email = ?',
-      [email]
-    );
+    // Check if admin tables exist first
+    let users;
+    try {
+      [users] = await pool.execute(
+        'SELECT * FROM admin_users WHERE email = ?',
+        [email]
+      );
+    } catch (dbError) {
+      console.error('Admin tables not found. Run database_admin.sql first:', dbError.message);
+      return res.status(500).json({ error: 'Admin system not configured. Please run database_admin.sql on your database.' });
+    }
 
     if (users.length === 0) {
       addLog('error', 'Login failed: user not found', { email });
