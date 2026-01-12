@@ -1833,7 +1833,7 @@ app.get('/api/logs', (req, res) => {
 // Call this URL periodically from Railway cron or external service
 // GET /api/cron/process-new?secret=YOUR_SECRET
 app.get('/api/cron/process-new', async (req, res) => {
-  const { secret } = req.query;
+  const { secret, sync } = req.query;
 
   // Verify secret
   if (secret !== CRON_SECRET) {
@@ -1843,6 +1843,26 @@ app.get('/api/cron/process-new', async (req, res) => {
 
   addLog('cron', 'Cron job started: process-new');
 
+  // Respond immediately for async mode (default for external cron services)
+  if (!sync) {
+    res.json({ success: true, message: 'Cron job started in background. Check /api/logs for progress.' });
+    // Continue processing in background (don't await)
+    runCronJob().catch(err => addLog('error', 'Background cron failed', { error: err.message }));
+    return;
+  }
+
+  // Sync mode - wait for completion (for manual triggers)
+  try {
+    const results = await runCronJob();
+    res.json({ success: true, results });
+  } catch (error) {
+    addLog('error', 'Cron job failed', { error: error.message });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Background cron job function
+async function runCronJob() {
   try {
     // Get all channels
     const [channels] = await pool.execute(`
@@ -1853,7 +1873,7 @@ app.get('/api/cron/process-new', async (req, res) => {
 
     if (channels.length === 0) {
       addLog('cron', 'No channels to process');
-      return res.json({ success: true, message: 'No channels to process' });
+      return { message: 'No channels to process' };
     }
 
     addLog('cron', `Found ${channels.length} channels to check`);
@@ -1948,13 +1968,13 @@ app.get('/api/cron/process-new', async (req, res) => {
     }
 
     addLog('cron', 'Cron job completed', results);
-    res.json({ success: true, results });
+    return results;
 
   } catch (error) {
     addLog('error', 'Cron job failed', { error: error.message });
-    res.status(500).json({ error: error.message });
+    throw error;
   }
-});
+}
 
 // Helper function to process AI for new videos only
 async function processAiForNewVideos() {
