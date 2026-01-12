@@ -1,5 +1,5 @@
 // Admin authentication helper
-const API_BASE = window.location.origin;
+var API_BASE = window.location.origin;
 
 function getAdminToken() {
   return localStorage.getItem('adminToken');
