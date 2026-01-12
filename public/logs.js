@@ -11,7 +11,10 @@ const errorCount = document.getElementById('errorCount');
 const processCount = document.getElementById('processCount');
 const cronCount = document.getElementById('cronCount');
 
-const API_BASE = window.location.origin;
+// Use existing API_BASE if defined by admin-auth.js
+if (typeof API_BASE === 'undefined') {
+  var API_BASE = window.location.origin;
+}
 
 let autoRefreshInterval = null;
 let isAutoRefreshing = false;

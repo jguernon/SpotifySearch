@@ -25,8 +25,10 @@ const historyList = document.getElementById('historyList');
 // Channel processing elements
 let channelResultsSection = document.getElementById('channelResultsSection');
 
-// API Base URL
-const API_BASE = window.location.origin;
+// API Base URL - use existing if defined by admin-auth.js
+if (typeof API_BASE === 'undefined') {
+  var API_BASE = window.location.origin;
+}
 
 // Language selector
 const languageSelect = document.getElementById('languageSelect');

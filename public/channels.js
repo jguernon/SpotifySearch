@@ -32,7 +32,10 @@ const deselectAllBtn = document.getElementById('deselectAllBtn');
 const addBlacklistInput = document.getElementById('addBlacklistInput');
 const addBlacklistBtn = document.getElementById('addBlacklistBtn');
 
-const API_BASE = window.location.origin;
+// Use existing API_BASE from admin-auth.js if available, otherwise define it
+if (typeof API_BASE === 'undefined') {
+  var API_BASE = window.location.origin;
+}
 
 // Track selected keywords
 let selectedKeywords = new Set();
