@@ -76,14 +76,23 @@
     async function loadLogs() {
       const type = document.getElementById('typeFilter').value;
       const url = type ? `${API_BASE}/api/logs?type=${type}` : `${API_BASE}/api/logs`;
+      const container = document.getElementById('logsList');
 
       try {
+        console.log('Fetching logs from:', url);
         const response = await fetch(url);
-        const logs = await response.json();
+        console.log('Response status:', response.status);
 
-        const container = document.getElementById('logsList');
-        if (logs.length === 0) {
-          container.innerHTML = '<p>No logs found</p>';
+        if (!response.ok) {
+          container.innerHTML = `<p>Error: ${response.status} ${response.statusText}</p>`;
+          return;
+        }
+
+        const logs = await response.json();
+        console.log('Logs received:', logs.length);
+
+        if (!logs || logs.length === 0) {
+          container.innerHTML = '<p>No logs found. Logs appear when videos are processed or cron runs.</p>';
           return;
         }
 
@@ -96,7 +105,8 @@
           </div>
         `).join('');
       } catch (error) {
-        document.getElementById('logsList').innerHTML = '<p>Error loading logs</p>';
+        console.error('Load logs error:', error);
+        container.innerHTML = `<p>Error loading logs: ${error.message}</p>`;
       }
     }
 
