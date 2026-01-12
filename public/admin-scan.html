@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Add Video - Admin - YouTube Transcriber</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .admin-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px; }
+    .user-info { display: flex; align-items: center; gap: 15px; }
+    .logout-btn { padding: 8px 16px; background: #ff4444; border: none; border-radius: 6px; color: white; cursor: pointer; }
+    .nav-links { display: flex; gap: 20px; margin-bottom: 30px; flex-wrap: wrap; }
+    .nav-links a { color: #667eea; text-decoration: none; padding: 10px 20px; border-radius: 8px; background: rgba(102, 126, 234, 0.1); }
+    .nav-links a:hover, .nav-links a.active { background: rgba(102, 126, 234, 0.3); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="admin-header">
+        <h1>Add Video</h1>
+        <div class="user-info">
+          <span id="userEmail">-</span>
+          <button id="logoutBtn" class="logout-btn">Logout</button>
+        </div>
+      </div>
+      <nav class="nav-links">
+        <a href="admin.html">Dashboard</a>
+        <a href="admin-channels.html">Channels</a>
+        <a href="admin-scan.html" class="active">Add Video</a>
+        <a href="admin-logs.html">Logs</a>
+        <a href="index.html">Public Search</a>
+      </nav>
+    </header>
+
+    <main>
+      <form id="podcastForm">
+        <div class="form-group">
+          <label for="spotifyUrl">YouTube Video URL</label>
+          <input type="url" id="spotifyUrl" name="spotifyUrl" placeholder="https://www.youtube.com/watch?v=..." required>
+          <p class="field-hint">Paste a YouTube video link - Gemini AI will transcribe it automatically</p>
+        </div>
+
+        <div class="form-group">
+          <label>Content Language</label>
+          <div class="language-toggle">
+            <button type="button" class="lang-btn active" data-lang="en">English</button>
+            <button type="button" class="lang-btn" data-lang="fr">Français</button>
+          </div>
+          <input type="hidden" id="languageSelect" name="language" value="en">
+        </div>
+
+        <button type="submit" id="submitBtn">
+          <span class="btn-text">Analyze Video</span>
+          <span class="btn-loading" style="display: none;">Processing...</span>
+        </button>
+      </form>
+
+      <div id="progressSection" class="progress-section" style="display: none;">
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <p class="progress-text" id="progressText">Initializing...</p>
+      </div>
+
+      <div id="errorMessage" class="error-message" style="display: none;">
+        <p id="errorText"></p>
+      </div>
+
+      <div id="resultsSection" class="results-section" style="display: none;">
+        <h2>Analysis Results</h2>
+        <div class="result-card">
+          <p><strong>Channel:</strong> <span id="resultPodcastName"></span></p>
+          <p><strong>Title:</strong> <span id="resultEpisodeTitle"></span></p>
+          <p><strong>Summary:</strong> <span id="resultSummary"></span></p>
+        </div>
+        <button id="newAnalysisBtn" class="secondary-btn">Analyze Another Video</button>
+      </div>
+    </main>
+  </div>
+
+  <script src="admin-auth.js"></script>
+  <script src="app.js"></script>
+  <script>
+    document.getElementById('logoutBtn').addEventListener('click', adminLogout);
+  </script>
+</body>
+</html>

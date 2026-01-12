@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Channels - Admin - YouTube Transcriber</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="channels.css">
+  <style>
+    .admin-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px; }
+    .user-info { display: flex; align-items: center; gap: 15px; }
+    .logout-btn { padding: 8px 16px; background: #ff4444; border: none; border-radius: 6px; color: white; cursor: pointer; }
+    .nav-links { display: flex; gap: 20px; margin-bottom: 30px; flex-wrap: wrap; }
+    .nav-links a { color: #667eea; text-decoration: none; padding: 10px 20px; border-radius: 8px; background: rgba(102, 126, 234, 0.1); }
+    .nav-links a:hover, .nav-links a.active { background: rgba(102, 126, 234, 0.3); }
+  </style>
+</head>
+<body>
+  <div class="container wide">
+    <header>
+      <div class="admin-header">
+        <h1>Channel Management</h1>
+        <div class="user-info">
+          <span id="userEmail">-</span>
+          <button id="logoutBtn" class="logout-btn">Logout</button>
+        </div>
+      </div>
+      <nav class="nav-links">
+        <a href="admin.html">Dashboard</a>
+        <a href="admin-channels.html" class="active">Channels</a>
+        <a href="admin-scan.html">Add Video</a>
+        <a href="admin-logs.html">Logs</a>
+        <a href="index.html">Public Search</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="channels-section">
+        <div class="section-header">
+          <h2>YouTube Channels</h2>
+          <button id="refreshBtn" class="icon-btn" title="Refresh">↻</button>
+        </div>
+        <div id="channelsList" class="channels-list">
+          <p class="loading-text">Loading channels...</p>
+        </div>
+      </section>
+
+      <section class="ai-section">
+        <h2>AI Keyword Processing</h2>
+        <div id="aiStatus" class="ai-status-card">
+          <div class="ai-info">
+            <p><strong>Videos without keywords:</strong> <span id="videosWithoutKeywords">-</span></p>
+            <p><strong>Missing thumbnails:</strong> <span id="missingThumbnails">-</span></p>
+            <p><strong>Missing dates:</strong> <span id="missingDates">-</span></p>
+          </div>
+          <div class="ai-buttons">
+            <button id="processNewOnlyBtn" class="primary-btn">Process New Only</button>
+            <button id="backfillThumbnailsBtn" class="secondary-btn">Backfill Thumbnails</button>
+            <button id="backfillDatesBtn" class="secondary-btn">Backfill Dates</button>
+          </div>
+        </div>
+        <div id="aiProgressSection" class="progress-section" style="display: none;">
+          <div class="progress-bar"><div class="progress-fill" id="aiProgressFill"></div></div>
+          <p class="progress-text" id="aiProgressText">Processing...</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="admin-auth.js"></script>
+  <script src="channels.js"></script>
+  <script>
+    document.getElementById('logoutBtn').addEventListener('click', adminLogout);
+  </script>
+</body>
+</html>
