@@ -38,6 +38,24 @@ const channelJobs = new Map();
 // Track AI processing jobs
 const aiJobs = new Map();
 
+// System logs for cron/automation (keep last 500 entries in memory)
+const systemLogs = [];
+const MAX_LOGS = 500;
+
+function addLog(type, message, details = null) {
+  const log = {
+    timestamp: new Date().toISOString(),
+    type, // 'cron', 'process', 'ai', 'error', 'info'
+    message,
+    details
+  };
+  systemLogs.unshift(log); // Add to beginning
+  if (systemLogs.length > MAX_LOGS) {
+    systemLogs.pop(); // Remove oldest
+  }
+  console.log(`[${type.toUpperCase()}] ${message}`, details || '');
+}
+
 // yt-dlp options for age-restricted videos
 // Set YT_DLP_COOKIES_FILE for production (e.g., './cookies.txt')
 // Set YT_DLP_BROWSER for local dev (e.g., 'chrome', 'firefox')
@@ -1769,7 +1787,196 @@ app.get('/api/podcasts', async (req, res) => {
   }
 });
 
+// ============================================
+// CRON / AUTOMATION ENDPOINTS
+// ============================================
+
+// Secret key for cron endpoint (set in environment variable)
+const CRON_SECRET = process.env.CRON_SECRET || 'change-me-in-production';
+
+// Get system logs
+app.get('/api/logs', (req, res) => {
+  const { limit = 100, type } = req.query;
+  let logs = systemLogs;
+
+  if (type) {
+    logs = logs.filter(l => l.type === type);
+  }
+
+  res.json(logs.slice(0, parseInt(limit)));
+});
+
+// Cron endpoint - processes new videos for all channels
+// Call this URL periodically from Railway cron or external service
+// GET /api/cron/process-new?secret=YOUR_SECRET
+app.get('/api/cron/process-new', async (req, res) => {
+  const { secret } = req.query;
+
+  // Verify secret
+  if (secret !== CRON_SECRET) {
+    addLog('error', 'Cron called with invalid secret');
+    return res.status(401).json({ error: 'Invalid secret' });
+  }
+
+  addLog('cron', 'Cron job started: process-new');
+
+  try {
+    // Get all channels
+    const [channels] = await pool.execute(`
+      SELECT DISTINCT channel_name, channel_url
+      FROM channels
+      WHERE channel_url IS NOT NULL AND channel_url != ''
+    `);
+
+    if (channels.length === 0) {
+      addLog('cron', 'No channels to process');
+      return res.json({ success: true, message: 'No channels to process' });
+    }
+
+    addLog('cron', `Found ${channels.length} channels to check`);
+
+    const results = {
+      channelsChecked: 0,
+      newVideosFound: 0,
+      videosProcessed: 0,
+      videosSkipped: 0,
+      videosFailed: 0,
+      errors: []
+    };
+
+    // Process each channel
+    for (const channel of channels) {
+      try {
+        addLog('cron', `Checking channel: ${channel.channel_name}`);
+
+        // Get processed video IDs
+        const [processed] = await pool.execute(
+          'SELECT spotify_url FROM podcasts WHERE podcast_name = ?',
+          [channel.channel_name]
+        );
+        const processedIds = new Set(processed.map(p => extractYoutubeId(p.spotify_url)));
+
+        // Get skipped video IDs
+        const [skipped] = await pool.execute(
+          'SELECT video_id FROM skipped_videos WHERE channel_name = ?',
+          [channel.channel_name]
+        );
+        skipped.forEach(s => processedIds.add(s.video_id));
+
+        // Get videos from YouTube (limit to recent 50 for cron)
+        const allVideos = await getChannelVideos(channel.channel_url, 50);
+        const newVideos = allVideos.filter(v => !processedIds.has(v.id));
+
+        results.channelsChecked++;
+        results.newVideosFound += newVideos.length;
+
+        if (newVideos.length > 0) {
+          addLog('cron', `Found ${newVideos.length} new videos for ${channel.channel_name}`);
+
+          // Process new videos (limit to 10 per channel per cron run)
+          const videosToProcess = newVideos.slice(0, 10);
+
+          for (const video of videosToProcess) {
+            try {
+              addLog('process', `Processing: ${video.title}`, { channel: channel.channel_name });
+              const result = await processVideo(video.url, video.id, false, 'en');
+
+              if (result.skipped) {
+                results.videosSkipped++;
+                addLog('process', `Skipped: ${video.title}`, { reason: result.reason });
+              } else {
+                results.videosProcessed++;
+                addLog('process', `Processed: ${video.title}`, { id: result.id });
+              }
+            } catch (error) {
+              results.videosFailed++;
+              addLog('error', `Failed to process: ${video.title}`, { error: error.message });
+            }
+
+            // Rate limiting
+            await new Promise(r => setTimeout(r, 2000));
+          }
+        }
+
+        // Update channel last_checked
+        await pool.execute(
+          'UPDATE channels SET last_checked = NOW() WHERE channel_name = ?',
+          [channel.channel_name]
+        );
+
+      } catch (error) {
+        results.errors.push({ channel: channel.channel_name, error: error.message });
+        addLog('error', `Error checking channel: ${channel.channel_name}`, { error: error.message });
+      }
+
+      // Small delay between channels
+      await new Promise(r => setTimeout(r, 1000));
+    }
+
+    // Auto-process AI keywords for new videos
+    if (results.videosProcessed > 0) {
+      addLog('ai', `Starting AI processing for ${results.videosProcessed} new videos`);
+      try {
+        await processAiForNewVideos();
+        addLog('ai', 'AI processing completed');
+      } catch (error) {
+        addLog('error', 'AI processing failed', { error: error.message });
+      }
+    }
+
+    addLog('cron', 'Cron job completed', results);
+    res.json({ success: true, results });
+
+  } catch (error) {
+    addLog('error', 'Cron job failed', { error: error.message });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Helper function to process AI for new videos only
+async function processAiForNewVideos() {
+  const [videos] = await pool.execute(`
+    SELECT id, episode_title, transcript, summary
+    FROM podcasts
+    WHERE (keywords IS NULL OR keywords = '')
+    AND transcript IS NOT NULL AND transcript != ''
+    LIMIT 50
+  `);
+
+  for (const video of videos) {
+    try {
+      const keywords = await extractKeywordsWithAI(video.transcript, video.summary);
+
+      if (keywords && keywords.length > 0) {
+        // Update video with keywords
+        await pool.execute(
+          'UPDATE podcasts SET keywords = ?, ai_processed_at = NOW() WHERE id = ?',
+          [keywords.join(','), video.id]
+        );
+
+        // Insert into keywords table
+        for (const keyword of keywords) {
+          await pool.execute(
+            'INSERT IGNORE INTO keywords (keyword, video_id) VALUES (?, ?)',
+            [keyword.toLowerCase().trim(), video.id]
+          );
+        }
+      }
+    } catch (error) {
+      addLog('error', `AI failed for video ${video.id}`, { error: error.message });
+    }
+
+    await new Promise(r => setTimeout(r, 500));
+  }
+}
+
+// Health check endpoint for Railway
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log('Supports: YouTube videos, channels, and playlists');
+  addLog('info', 'Server started', { port: PORT });
 });
