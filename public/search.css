@@ -680,6 +680,11 @@
   max-width: 500px;
   width: 90%;
   color: #fff;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
 }
 
 .suggest-dialog::backdrop {
