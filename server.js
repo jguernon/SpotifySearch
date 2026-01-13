@@ -90,10 +90,11 @@ function addLog(type, message, details = null) {
   console.log(`[${type.toUpperCase()}] ${message}`, details || '');
 }
 
-// yt-dlp options for age-restricted videos
+// yt-dlp configuration
+// Set YT_DLP_PATH for custom binary path (e.g., './yt-dlp' for standalone binary)
 // Set YT_DLP_COOKIES_FILE for production (e.g., './cookies.txt')
 // Set YT_DLP_BROWSER for local dev (e.g., 'chrome', 'firefox')
-// If neither is set, runs without cookies (age-restricted videos will fail)
+const YT_DLP_PATH = process.env.YT_DLP_PATH || 'yt-dlp';
 const YT_DLP_COOKIES_FILE = process.env.YT_DLP_COOKIES_FILE;
 const YT_DLP_BROWSER = process.env.YT_DLP_BROWSER;
 let YT_DLP_OPTS = '';
@@ -104,6 +105,11 @@ if (YT_DLP_COOKIES_FILE) {
 }
 // Always add age-limit
 YT_DLP_OPTS += ' --age-limit 99';
+
+// Helper function to build yt-dlp command
+function ytdlp(args) {
+  return `${YT_DLP_PATH} ${YT_DLP_OPTS} ${args}`;
+}
 
 // Detect URL type
 function detectUrlType(url) {
@@ -136,7 +142,7 @@ async function getChannelVideos(channelUrl, maxVideos = 50) {
 
   try {
     const { stdout } = await execPromise(
-      `yt-dlp ${YT_DLP_OPTS} --flat-playlist --dump-json --playlist-end ${maxVideos} "${channelUrl}"`,
+      ytdlp(`--flat-playlist --dump-json --playlist-end ${maxVideos} "${channelUrl}"`),
       { timeout: 120000, maxBuffer: 50 * 1024 * 1024 }
     );
 
@@ -170,7 +176,7 @@ async function getChannelVideos(channelUrl, maxVideos = 50) {
 async function getYoutubeInfo(youtubeUrl) {
   try {
     const { stdout } = await execPromise(
-      `yt-dlp ${YT_DLP_OPTS} --dump-json --no-download "${youtubeUrl}"`,
+      ytdlp(`--dump-json --no-download "${youtubeUrl}"`),
       { timeout: 30000 }
     );
     const info = JSON.parse(stdout);
@@ -217,7 +223,7 @@ async function downloadSubtitles(youtubeUrl, videoId, language = 'en') {
 
   try {
     // First try to get subtitles in the requested language
-    const cmd = `yt-dlp ${YT_DLP_OPTS} --skip-download --write-auto-subs --sub-lang "${subLang}" --sub-format vtt -o "${outputPath}" --no-playlist "${youtubeUrl}"`;
+    const cmd = ytdlp(`--skip-download --write-auto-subs --sub-lang "${subLang}" --sub-format vtt -o "${outputPath}" --no-playlist "${youtubeUrl}"`);
     await execPromise(cmd, { timeout: 60000 });
 
     const files = fs.readdirSync(TEMP_DIR).filter(f => f.startsWith(videoId) && f.endsWith('.vtt'));
@@ -230,7 +236,7 @@ async function downloadSubtitles(youtubeUrl, videoId, language = 'en') {
     }
 
     // Try any language as fallback
-    const cmd2 = `yt-dlp ${YT_DLP_OPTS} --skip-download --write-auto-subs --sub-format vtt -o "${outputPath}" --no-playlist "${youtubeUrl}"`;
+    const cmd2 = ytdlp(`--skip-download --write-auto-subs --sub-format vtt -o "${outputPath}" --no-playlist "${youtubeUrl}"`);
     await execPromise(cmd2, { timeout: 60000 });
 
     const files2 = fs.readdirSync(TEMP_DIR).filter(f => f.startsWith(videoId) && f.endsWith('.vtt'));
@@ -836,7 +842,7 @@ app.post('/api/channels', async (req, res) => {
 
     try {
       // Get channel name and URL from the first video
-      const cmd = `yt-dlp ${YT_DLP_OPTS} --playlist-items 1 --print "%(channel)s" --print "%(channel_url)s" "${cleanUrl}/videos"`;
+      const cmd = ytdlp(`--playlist-items 1 --print "%(channel)s" --print "%(channel_url)s" "${cleanUrl}/videos"`);
       console.log('Running command:', cmd);
       const { stdout } = await execPromise(cmd, { timeout: 120000 });
 
@@ -920,7 +926,7 @@ app.post('/api/refresh-channel-count', async (req, res) => {
       console.log(`[Check Updates] URL is a video, extracting channel URL...`);
       try {
         const { stdout } = await execPromise(
-          `yt-dlp ${YT_DLP_OPTS} --print channel_url --no-download "${channelUrl}"`,
+          ytdlp(`--print channel_url --no-download "${channelUrl}"`),
           { timeout: 30000 }
         );
         actualChannelUrl = stdout.trim();
@@ -933,7 +939,7 @@ app.post('/api/refresh-channel-count', async (req, res) => {
 
     // Get all videos from channel to count and find the newest
     const { stdout: allVideosJson } = await execPromise(
-      `yt-dlp ${YT_DLP_OPTS} --flat-playlist --dump-json "${actualChannelUrl}"`,
+      ytdlp(`--flat-playlist --dump-json "${actualChannelUrl}"`),
       { timeout: 120000, maxBuffer: 50 * 1024 * 1024 }
     );
 
@@ -949,7 +955,7 @@ app.post('/api/refresh-channel-count', async (req, res) => {
       if (firstVideo.id) {
         try {
           const { stdout: videoInfo } = await execPromise(
-            `yt-dlp ${YT_DLP_OPTS} --dump-json --no-download "https://www.youtube.com/watch?v=${firstVideo.id}"`,
+            ytdlp(`--dump-json --no-download "https://www.youtube.com/watch?v=${firstVideo.id}"`),
             { timeout: 30000 }
           );
           const info = JSON.parse(videoInfo);
