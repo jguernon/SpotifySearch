@@ -11,10 +11,6 @@ const API_BASE = window.location.origin;
 
 // Footer elements
 const totalEpisodes = document.getElementById('totalEpisodes');
-const indexedList = document.getElementById('indexedList');
-const expandBtn = document.getElementById('expandBtn');
-let indexedExpanded = false;
-let indexedStatsLoaded = false;
 
 // Sort elements
 const sortRelevanceBtn = document.getElementById('sortRelevance');
@@ -403,40 +399,16 @@ async function loadIndexedStats() {
     const stats = await response.json();
 
     totalEpisodes.textContent = stats.total_episodes.toLocaleString();
-    indexedStatsLoaded = true;
 
     // Update language indicator in footer
     const langIndicator = document.getElementById('footerLangIndicator');
     if (langIndicator) {
       langIndicator.textContent = getLanguageDisplayName(currentLanguage);
     }
-
-    // Pre-render the list
-    if (stats.channels.length === 0) {
-      indexedList.innerHTML = `<p class="empty-state">No channels indexed in ${getLanguageDisplayName(currentLanguage)}</p>`;
-    } else {
-      indexedList.innerHTML = stats.channels.map(channel => {
-        const lastScan = new Date(channel.last_scan).toLocaleDateString();
-        return `
-          <div class="indexed-channel">
-            <span class="channel-name">${escapeHtml(channel.name)}</span>
-            <span class="channel-stats">${channel.episodes}/${channel.total}</span>
-            <span class="channel-date">${lastScan}</span>
-          </div>
-        `;
-      }).join('');
-    }
   } catch (error) {
     console.error('Failed to load indexed stats:', error);
     totalEpisodes.textContent = '?';
   }
-}
-
-// Toggle indexed list visibility
-function toggleIndexedList() {
-  indexedExpanded = !indexedExpanded;
-  indexedList.style.display = indexedExpanded ? 'block' : 'none';
-  expandBtn.textContent = indexedExpanded ? '−' : '+';
 }
 
 // ============================================
