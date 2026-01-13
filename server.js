@@ -211,6 +211,7 @@ async function getYoutubeInfo(youtubeUrl) {
 }
 
 // Download subtitles from YouTube using yt-dlp
+// Priority: 1. Manual subs in requested language, 2. Auto-generated in requested language, 3. Any available subs
 async function downloadSubtitles(youtubeUrl, videoId, language = 'en') {
   const outputPath = path.join(TEMP_DIR, videoId);
 
@@ -221,40 +222,91 @@ async function downloadSubtitles(youtubeUrl, videoId, language = 'en') {
   };
   const subLang = langPatterns[language] || `${language}.*,${language}`;
 
-  try {
-    // First try to get subtitles in the requested language
-    const cmd = ytdlp(`--skip-download --write-auto-subs --sub-lang "${subLang}" --sub-format vtt -o "${outputPath}" --no-playlist "${youtubeUrl}"`);
-    await execPromise(cmd, { timeout: 60000 });
-
+  // Helper to check for and read subtitle files
+  const checkAndReadSubs = () => {
     const files = fs.readdirSync(TEMP_DIR).filter(f => f.startsWith(videoId) && f.endsWith('.vtt'));
-
     if (files.length > 0) {
       const subtitlePath = path.join(TEMP_DIR, files[0]);
       const vttContent = fs.readFileSync(subtitlePath, 'utf8');
-      fs.unlinkSync(subtitlePath);
+      // Clean up all subtitle files for this video
+      files.forEach(f => {
+        try { fs.unlinkSync(path.join(TEMP_DIR, f)); } catch (e) {}
+      });
       return parseVTT(vttContent);
     }
-
-    // Try any language as fallback
-    const cmd2 = ytdlp(`--skip-download --write-auto-subs --sub-format vtt -o "${outputPath}" --no-playlist "${youtubeUrl}"`);
-    await execPromise(cmd2, { timeout: 60000 });
-
-    const files2 = fs.readdirSync(TEMP_DIR).filter(f => f.startsWith(videoId) && f.endsWith('.vtt'));
-
-    if (files2.length > 0) {
-      const subtitlePath = path.join(TEMP_DIR, files2[0]);
-      const vttContent = fs.readFileSync(subtitlePath, 'utf8');
-      fs.unlinkSync(subtitlePath);
-      return parseVTT(vttContent);
-    }
-
     return null;
-  } catch (error) {
-    // Clean up any partial files
+  };
+
+  // Helper to clean up files
+  const cleanupFiles = () => {
     const files = fs.readdirSync(TEMP_DIR).filter(f => f.startsWith(videoId));
     files.forEach(f => {
       try { fs.unlinkSync(path.join(TEMP_DIR, f)); } catch (e) {}
     });
+  };
+
+  try {
+    // 1. First try manual subtitles in the requested language
+    console.log(`[Subtitles] Trying manual subs in ${language}...`);
+    try {
+      const cmd1 = ytdlp(`--skip-download --write-subs --sub-lang "${subLang}" --sub-format vtt -o "${outputPath}" --no-playlist "${youtubeUrl}"`);
+      await execPromise(cmd1, { timeout: 60000 });
+      const result1 = checkAndReadSubs();
+      if (result1) {
+        console.log(`[Subtitles] Found manual subs in ${language}`);
+        return result1;
+      }
+    } catch (e) {
+      cleanupFiles();
+    }
+
+    // 2. Try auto-generated subtitles in the requested language
+    console.log(`[Subtitles] Trying auto-generated subs in ${language}...`);
+    try {
+      const cmd2 = ytdlp(`--skip-download --write-auto-subs --sub-lang "${subLang}" --sub-format vtt -o "${outputPath}" --no-playlist "${youtubeUrl}"`);
+      await execPromise(cmd2, { timeout: 60000 });
+      const result2 = checkAndReadSubs();
+      if (result2) {
+        console.log(`[Subtitles] Found auto-generated subs in ${language}`);
+        return result2;
+      }
+    } catch (e) {
+      cleanupFiles();
+    }
+
+    // 3. Try any manual subtitles
+    console.log(`[Subtitles] Trying any manual subs...`);
+    try {
+      const cmd3 = ytdlp(`--skip-download --write-subs --sub-format vtt -o "${outputPath}" --no-playlist "${youtubeUrl}"`);
+      await execPromise(cmd3, { timeout: 60000 });
+      const result3 = checkAndReadSubs();
+      if (result3) {
+        console.log(`[Subtitles] Found manual subs in another language`);
+        return result3;
+      }
+    } catch (e) {
+      cleanupFiles();
+    }
+
+    // 4. Try any auto-generated subtitles
+    console.log(`[Subtitles] Trying any auto-generated subs...`);
+    try {
+      const cmd4 = ytdlp(`--skip-download --write-auto-subs --sub-format vtt -o "${outputPath}" --no-playlist "${youtubeUrl}"`);
+      await execPromise(cmd4, { timeout: 60000 });
+      const result4 = checkAndReadSubs();
+      if (result4) {
+        console.log(`[Subtitles] Found auto-generated subs in another language`);
+        return result4;
+      }
+    } catch (e) {
+      cleanupFiles();
+    }
+
+    console.log(`[Subtitles] No subtitles found for ${videoId}`);
+    return null;
+  } catch (error) {
+    cleanupFiles();
+    console.error(`[Subtitles] Error downloading subtitles:`, error.message);
     return null;
   }
 }
@@ -742,6 +794,7 @@ app.get('/sitemap.xml', async (req, res) => {
 // Get all channels with stats
 app.get('/api/channels', async (req, res) => {
   try {
+    // Get channels that have processed videos
     const [rows] = await pool.execute(`
       SELECT
         podcast_name as channel_name,
@@ -755,10 +808,9 @@ app.get('/api/channels', async (req, res) => {
       ORDER BY last_processed DESC
     `);
 
-    // For each channel, we need to get total available videos
-    // This is stored in the channels table or we estimate from what we have
+    // Get ALL channels from the channels table (including those without processed videos)
     const [channelStats] = await pool.execute(`
-      SELECT channel_name, total_videos, channel_url, last_video_date, last_checked
+      SELECT channel_name, total_videos, channel_url, last_video_date, last_checked, language, created_at
       FROM channels
       WHERE channel_name IS NOT NULL
     `);
@@ -772,7 +824,9 @@ app.get('/api/channels', async (req, res) => {
     const skippedMap = new Map(skippedStats.map(s => [s.channel_name, s.skipped_count]));
 
     const statsMap = new Map(channelStats.map(c => [c.channel_name, c]));
+    const processedChannelNames = new Set(rows.map(r => r.channel_name));
 
+    // Build channels from processed videos
     const channels = rows.map(row => {
       const stats = statsMap.get(row.channel_name);
       const skippedCount = skippedMap.get(row.channel_name) || 0;
@@ -802,9 +856,32 @@ app.get('/api/channels', async (req, res) => {
         newest_video_date: row.newest_video_date,
         last_video_date_on_youtube: stats?.last_video_date || null,
         last_checked: stats?.last_checked || null,
-        has_new_videos: hasNewVideos
+        has_new_videos: hasNewVideos,
+        status: 'active'
       };
     });
+
+    // Add channels from the channels table that don't have any processed videos yet
+    for (const channelStat of channelStats) {
+      if (!processedChannelNames.has(channelStat.channel_name)) {
+        channels.push({
+          channel_name: channelStat.channel_name,
+          channel_url: channelStat.channel_url,
+          videos_processed: 0,
+          videos_skipped: 0,
+          total_available: channelStat.total_videos || 0,
+          last_processed: null,
+          ai_processed_at: null,
+          newest_video_date: null,
+          last_video_date_on_youtube: channelStat.last_video_date || null,
+          last_checked: channelStat.last_checked || null,
+          has_new_videos: true,
+          status: 'pending',
+          language: channelStat.language,
+          added_at: channelStat.created_at
+        });
+      }
+    }
 
     res.json(channels);
   } catch (error) {
