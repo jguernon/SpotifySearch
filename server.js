@@ -48,9 +48,9 @@ const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-// Custom middleware to prevent caching of HTML files
+// Custom middleware to prevent caching of static files (HTML, JS, CSS)
 app.use((req, res, next) => {
-  if (req.path.endsWith('.html') || req.path === '/' || !req.path.includes('.')) {
+  if (req.path.endsWith('.html') || req.path.endsWith('.js') || req.path.endsWith('.css') || req.path === '/' || !req.path.includes('.')) {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
