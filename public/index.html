@@ -74,23 +74,69 @@
     </main>
 
     <footer>
-      <!-- Indexed Podcasts Stats -->
-      <div class="indexed-stats">
-        <div class="indexed-header" onclick="toggleIndexedList()">
-          <span class="indexed-title">
-            Indexed podcasts (<span id="footerLangIndicator">English</span>): <span id="totalEpisodes">-</span>
-            <div style="text-align:right;width:100%;margin-top:15px;">Why not all? Maybe we are missing the transcripts to index.</div>
-          </span>
-          <button class="expand-btn" id="expandBtn">+</button>
-        </div>
-        <div id="indexedList" class="indexed-list" style="display: none;">
-          <p class="loading-text">Loading...</p>
-          
-        </div>
-        
+      <div class="footer-content">
+        <p class="indexed-info">
+          <strong><span id="totalEpisodes">-</span></strong> podcasts indexed in <span id="footerLangIndicator">English</span>
+        </p>
+        <p class="footer-note">
+          Your favorite podcast isn't here? It might be because the transcript wasn't available for indexing.
+        </p>
+        <button type="button" class="suggest-btn" onclick="openSuggestDialog()">Suggest a Podcast</button>
       </div>
-      <p class="footer-credit">Jonathan Guernon 2026 - Powered AI</p>
+      <p class="footer-credit">Jonathan Guernon 2026 - Powered by AI</p>
     </footer>
+
+    <!-- Suggestion Dialog -->
+    <dialog id="suggestDialog" class="suggest-dialog">
+      <div class="dialog-header">
+        <h2>Suggest a Podcast</h2>
+        <button type="button" class="dialog-close" onclick="closeSuggestDialog()">&times;</button>
+      </div>
+      <form id="suggestForm" onsubmit="submitSuggestion(event)">
+        <!-- Honeypot field - hidden from users, bots will fill it -->
+        <div style="position: absolute; left: -9999px;" aria-hidden="true">
+          <label for="website">Website</label>
+          <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
+        </div>
+
+        <div class="form-group">
+          <label for="fullName">Full Name *</label>
+          <input type="text" id="fullName" name="fullName" required minlength="2" maxlength="100">
+        </div>
+
+        <div class="form-group">
+          <label for="email">Email *</label>
+          <input type="email" id="email" name="email" required>
+        </div>
+
+        <div class="form-group">
+          <label for="youtubeUrl">YouTube Channel/Podcast URL *</label>
+          <input type="url" id="youtubeUrl" name="youtubeUrl" required placeholder="https://www.youtube.com/@channel or https://www.youtube.com/watch?v=...">
+        </div>
+
+        <div class="form-group">
+          <label for="language">Language *</label>
+          <select id="language" name="language" required>
+            <option value="">-- Select --</option>
+            <option value="en">English</option>
+            <option value="fr">Français</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="reason">Why should we index this podcast? *</label>
+          <textarea id="reason" name="reason" required minlength="10" maxlength="500" rows="3" placeholder="Tell us why this podcast would be valuable..."></textarea>
+        </div>
+
+        <div class="form-actions">
+          <button type="button" class="btn-cancel" onclick="closeSuggestDialog()">Cancel</button>
+          <button type="submit" class="btn-submit" id="submitSuggestBtn">
+            <span class="btn-text">Submit</span>
+            <span class="btn-loading" style="display: none;">Sending...</span>
+          </button>
+        </div>
+      </form>
+    </dialog>
   </div>
 
   <script src="search.js"></script>

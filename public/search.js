@@ -438,3 +438,96 @@ function toggleIndexedList() {
   indexedList.style.display = indexedExpanded ? 'block' : 'none';
   expandBtn.textContent = indexedExpanded ? '−' : '+';
 }
+
+// ============================================
+// SUGGEST PODCAST DIALOG
+// ============================================
+
+const suggestDialog = document.getElementById('suggestDialog');
+const suggestForm = document.getElementById('suggestForm');
+
+function openSuggestDialog() {
+  suggestDialog.showModal();
+}
+
+function closeSuggestDialog() {
+  suggestDialog.close();
+  suggestForm.reset();
+}
+
+// Close dialog when clicking outside
+suggestDialog.addEventListener('click', (e) => {
+  if (e.target === suggestDialog) {
+    closeSuggestDialog();
+  }
+});
+
+// Close dialog with Escape key
+suggestDialog.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeSuggestDialog();
+  }
+});
+
+async function submitSuggestion(event) {
+  event.preventDefault();
+
+  const submitBtn = document.getElementById('submitSuggestBtn');
+  const btnText = submitBtn.querySelector('.btn-text');
+  const btnLoading = submitBtn.querySelector('.btn-loading');
+
+  // Check honeypot field (bots will fill this)
+  const honeypot = document.getElementById('website').value;
+  if (honeypot) {
+    // Bot detected - pretend success but don't send
+    alert('Thank you for your suggestion!');
+    closeSuggestDialog();
+    return;
+  }
+
+  // Get form data
+  const formData = {
+    fullName: document.getElementById('fullName').value.trim(),
+    email: document.getElementById('email').value.trim(),
+    youtubeUrl: document.getElementById('youtubeUrl').value.trim(),
+    language: document.getElementById('language').value,
+    reason: document.getElementById('reason').value.trim()
+  };
+
+  // Validate YouTube URL
+  if (!formData.youtubeUrl.includes('youtube.com') && !formData.youtubeUrl.includes('youtu.be')) {
+    alert('Please enter a valid YouTube URL');
+    return;
+  }
+
+  // Show loading state
+  submitBtn.disabled = true;
+  btnText.style.display = 'none';
+  btnLoading.style.display = 'inline';
+
+  try {
+    const response = await fetch(`${API_BASE}/api/suggest-podcast`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(formData)
+    });
+
+    const result = await response.json();
+
+    if (response.ok) {
+      alert('Thank you for your suggestion! We will review it soon.');
+      closeSuggestDialog();
+    } else {
+      alert('Error: ' + (result.error || 'Failed to submit suggestion'));
+    }
+  } catch (error) {
+    console.error('Suggestion error:', error);
+    alert('Failed to submit suggestion. Please try again later.');
+  } finally {
+    submitBtn.disabled = false;
+    btnText.style.display = 'inline';
+    btnLoading.style.display = 'none';
+  }
+}

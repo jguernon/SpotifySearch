@@ -2115,6 +2115,129 @@ app.get('/api/health', (req, res) => {
 });
 
 // ============================================
+// PODCAST SUGGESTION ENDPOINT
+// ============================================
+
+// Simple email sending using nodemailer (or save to DB)
+app.post('/api/suggest-podcast', async (req, res) => {
+  try {
+    const { fullName, email, youtubeUrl, language, reason } = req.body;
+
+    // Validate required fields
+    if (!fullName || !email || !youtubeUrl || !language || !reason) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
+
+    // Validate YouTube URL
+    if (!youtubeUrl.includes('youtube.com') && !youtubeUrl.includes('youtu.be')) {
+      return res.status(400).json({ error: 'Invalid YouTube URL' });
+    }
+
+    // Validate language
+    if (!['en', 'fr'].includes(language)) {
+      return res.status(400).json({ error: 'Invalid language' });
+    }
+
+    // Log the suggestion
+    addLog('info', 'New podcast suggestion received', {
+      from: fullName,
+      email: email,
+      url: youtubeUrl,
+      language: language
+    });
+
+    // Save to database for review
+    try {
+      await pool.execute(`
+        INSERT INTO podcast_suggestions (full_name, email, youtube_url, language, reason, created_at)
+        VALUES (?, ?, ?, ?, ?, NOW())
+      `, [fullName, email, youtubeUrl, language, reason]);
+    } catch (dbError) {
+      // Table might not exist, create it
+      if (dbError.code === 'ER_NO_SUCH_TABLE') {
+        await pool.execute(`
+          CREATE TABLE podcast_suggestions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            full_name VARCHAR(100) NOT NULL,
+            email VARCHAR(255) NOT NULL,
+            youtube_url VARCHAR(500) NOT NULL,
+            language VARCHAR(10) NOT NULL,
+            reason TEXT NOT NULL,
+            status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+        // Retry insert
+        await pool.execute(`
+          INSERT INTO podcast_suggestions (full_name, email, youtube_url, language, reason, created_at)
+          VALUES (?, ?, ?, ?, ?, NOW())
+        `, [fullName, email, youtubeUrl, language, reason]);
+      } else {
+        throw dbError;
+      }
+    }
+
+    // Try to send email notification (optional - requires SMTP config)
+    if (process.env.SMTP_HOST) {
+      try {
+        const nodemailer = require('nodemailer');
+        const transporter = nodemailer.createTransport({
+          host: process.env.SMTP_HOST,
+          port: process.env.SMTP_PORT || 587,
+          secure: process.env.SMTP_SECURE === 'true',
+          auth: {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS
+          }
+        });
+
+        await transporter.sendMail({
+          from: process.env.SMTP_FROM || 'noreply@podsearch.cloud',
+          to: 'jguernon@proton.me',
+          subject: 'PodSearch - Suggestion',
+          text: `New podcast suggestion:
+
+Name: ${fullName}
+Email: ${email}
+YouTube URL: ${youtubeUrl}
+Language: ${language === 'en' ? 'English' : 'Français'}
+
+Reason:
+${reason}
+`,
+          html: `
+<h2>New podcast suggestion</h2>
+<p><strong>Name:</strong> ${fullName}</p>
+<p><strong>Email:</strong> ${email}</p>
+<p><strong>YouTube URL:</strong> <a href="${youtubeUrl}">${youtubeUrl}</a></p>
+<p><strong>Language:</strong> ${language === 'en' ? 'English' : 'Français'}</p>
+<h3>Reason:</h3>
+<p>${reason.replace(/\n/g, '<br>')}</p>
+`
+        });
+        addLog('info', 'Suggestion email sent successfully');
+      } catch (emailError) {
+        addLog('error', 'Failed to send suggestion email', { error: emailError.message });
+        // Don't fail the request if email fails - we still saved to DB
+      }
+    }
+
+    res.json({ success: true, message: 'Suggestion received. Thank you!' });
+
+  } catch (error) {
+    console.error('Suggestion error:', error);
+    addLog('error', 'Failed to process suggestion', { error: error.message });
+    res.status(500).json({ error: 'Failed to submit suggestion' });
+  }
+});
+
+// ============================================
 // ADMIN AUTH ENDPOINTS
 // ============================================
 
