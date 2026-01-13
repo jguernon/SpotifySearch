@@ -814,6 +814,83 @@ function extractChannelUrl(videoUrl) {
   return videoUrl;
 }
 
+// Add a new channel to the list (without processing it)
+app.post('/api/channels', async (req, res) => {
+  try {
+    const { url, language = 'en' } = req.body;
+
+    if (!url) {
+      return res.status(400).json({ error: 'URL is required' });
+    }
+
+    // Validate it's a channel URL
+    if (!url.includes('/channel/') && !url.includes('/c/') && !url.includes('/@') && !url.includes('/user/')) {
+      return res.status(400).json({ error: 'Please provide a channel URL, not a video URL' });
+    }
+
+    // Get channel info using yt-dlp
+    const cmd = `yt-dlp ${YT_DLP_OPTS} --print channel --print channel_url --print playlist_count --playlist-items 0 "${url}" 2>/dev/null || yt-dlp ${YT_DLP_OPTS} --print channel --print channel_url --flat-playlist --print playlist_count "${url}" 2>/dev/null | head -3`;
+
+    let channelName, channelUrl, totalVideos;
+
+    try {
+      const { stdout } = await execPromise(cmd, { timeout: 30000 });
+      const lines = stdout.trim().split('\n').filter(l => l.trim());
+
+      if (lines.length >= 2) {
+        channelName = lines[0].trim();
+        channelUrl = lines[1].trim();
+        totalVideos = parseInt(lines[2]) || 0;
+      } else {
+        throw new Error('Could not get channel info');
+      }
+    } catch (cmdError) {
+      // Fallback: try simpler command
+      const fallbackCmd = `yt-dlp ${YT_DLP_OPTS} --print channel "${url}" 2>/dev/null`;
+      const { stdout } = await execPromise(fallbackCmd, { timeout: 30000 });
+      channelName = stdout.trim();
+      channelUrl = url;
+      totalVideos = 0;
+    }
+
+    if (!channelName) {
+      return res.status(400).json({ error: 'Could not retrieve channel name from URL' });
+    }
+
+    // Check if channel already exists
+    const [existing] = await pool.execute(
+      'SELECT id, channel_name FROM channels WHERE channel_name = ? OR channel_url = ?',
+      [channelName, channelUrl]
+    );
+
+    if (existing.length > 0) {
+      return res.status(400).json({ error: `Channel "${existing[0].channel_name}" already exists in the list` });
+    }
+
+    // Insert the channel
+    await pool.execute(`
+      INSERT INTO channels (channel_name, channel_url, total_videos, language, last_checked, updated_at)
+      VALUES (?, ?, ?, ?, NULL, NOW())
+    `, [channelName, channelUrl, totalVideos, language]);
+
+    addLog('info', `Channel added: ${channelName}`, { url: channelUrl, language, totalVideos });
+
+    res.json({
+      success: true,
+      channel: {
+        name: channelName,
+        url: channelUrl,
+        total_videos: totalVideos,
+        language
+      }
+    });
+
+  } catch (error) {
+    console.error('Add channel error:', error);
+    res.status(500).json({ error: error.message || 'Failed to add channel' });
+  }
+});
+
 // Refresh channel video count and check for new videos
 app.post('/api/refresh-channel-count', async (req, res) => {
   try {
