@@ -828,26 +828,39 @@ app.post('/api/channels', async (req, res) => {
       return res.status(400).json({ error: 'Please provide a channel URL, not a video URL' });
     }
 
-    // Get channel info using yt-dlp (simplified command)
+    // Clean up URL (remove /videos, /shorts, etc. suffixes)
+    let cleanUrl = url.replace(/\/(videos|shorts|streams|playlists|community|channels|about).*$/, '');
+
+    // Get channel info using yt-dlp
     let channelName, channelUrl, totalVideos = 0;
 
     try {
-      // First, get the channel name
-      const nameCmd = `yt-dlp ${YT_DLP_OPTS} --playlist-items 1 --print channel "${url}"`;
-      const { stdout: nameOut } = await execPromise(nameCmd, { timeout: 60000 });
-      channelName = nameOut.trim().split('\n')[0];
+      // Get channel name and URL from the first video
+      const cmd = `yt-dlp ${YT_DLP_OPTS} --playlist-items 1 --print "%(channel)s" --print "%(channel_url)s" "${cleanUrl}/videos"`;
+      console.log('Running command:', cmd);
+      const { stdout } = await execPromise(cmd, { timeout: 120000 });
 
-      // Try to get channel URL
-      try {
-        const urlCmd = `yt-dlp ${YT_DLP_OPTS} --playlist-items 1 --print channel_url "${url}"`;
-        const { stdout: urlOut } = await execPromise(urlCmd, { timeout: 30000 });
-        channelUrl = urlOut.trim().split('\n')[0] || url;
-      } catch {
-        channelUrl = url;
+      const lines = stdout.trim().split('\n').filter(l => l.trim());
+      if (lines.length >= 1) {
+        channelName = lines[0].trim();
+        channelUrl = lines[1]?.trim() || cleanUrl;
+      }
+
+      if (!channelName) {
+        throw new Error('No channel name in output');
       }
     } catch (cmdError) {
       console.error('yt-dlp error:', cmdError.message);
-      return res.status(400).json({ error: 'Could not retrieve channel info. Make sure the URL is valid.' });
+
+      // Fallback: try to extract channel name from URL
+      const match = url.match(/@([^\/]+)/);
+      if (match) {
+        channelName = match[1].replace(/[_-]/g, ' ');
+        channelUrl = cleanUrl;
+        console.log('Using fallback channel name from URL:', channelName);
+      } else {
+        return res.status(400).json({ error: 'Could not retrieve channel info. Make sure the URL is valid and the channel exists.' });
+      }
     }
 
     if (!channelName) {
