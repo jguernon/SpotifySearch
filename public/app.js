@@ -219,7 +219,9 @@ function hideProgress() {
 
 function updateProgress(percent, text) {
   progressFill.style.width = `${percent}%`;
-  progressPercent.textContent = `${percent}%`;
+  if (progressPercent) {
+    progressPercent.textContent = `${percent}%`;
+  }
   progressText.textContent = text;
 }
 
@@ -236,7 +238,9 @@ function showResults(data) {
   resultPodcastName.textContent = data.podcast_name || 'Unknown';
   resultEpisodeTitle.textContent = data.episode_title || 'Unknown';
   resultSummary.textContent = data.summary || 'No summary available';
-  resultBestPart.textContent = data.best_part || 'No highlight extracted';
+  if (resultBestPart) {
+    resultBestPart.textContent = data.best_part || 'No highlight extracted';
+  }
   resultsSection.style.display = 'block';
   resultsSection.scrollIntoView({ behavior: 'smooth' });
 }
