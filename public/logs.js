@@ -136,7 +136,11 @@ async function triggerCron() {
     const result = await response.json();
 
     if (response.ok) {
-      alert(`Cron completed!\n\nChannels checked: ${result.results.channelsChecked}\nNew videos found: ${result.results.newVideosFound}\nProcessed: ${result.results.videosProcessed}\nSkipped: ${result.results.videosSkipped}\nFailed: ${result.results.videosFailed}`);
+      if (result.results) {
+        alert(`Cron completed!\n\nChannels checked: ${result.results.channelsChecked}\nNew videos found: ${result.results.newVideosFound}\nProcessed: ${result.results.videosProcessed}\nSkipped: ${result.results.videosSkipped}\nFailed: ${result.results.videosFailed}`);
+      } else {
+        alert(result.message || 'Cron job started in background. Check logs for progress.');
+      }
       loadLogs();
     } else {
       alert('Error: ' + (result.error || 'Unknown error'));

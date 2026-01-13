@@ -623,6 +623,102 @@ app.get('/health', (req, res) => {
 });
 
 // ============================================
+// SEO: ROBOTS.TXT & SITEMAP.XML
+// ============================================
+
+const SITE_URL = process.env.SITE_URL || 'https://podsearch.cloud';
+
+// robots.txt
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain');
+  res.send(`User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /admin-*
+Disallow: /login.html
+Disallow: /api/
+
+Sitemap: ${SITE_URL}/sitemap.xml
+`);
+});
+
+// sitemap.xml - dynamically generated with keywords/tags
+app.get('/sitemap.xml', async (req, res) => {
+  try {
+    // Get popular keywords (excluding blacklisted)
+    const [keywords] = await pool.execute(`
+      SELECT k.keyword, SUM(k.count) as total_count, MAX(k.updated_at) as last_updated
+      FROM keywords k
+      LEFT JOIN keyword_blacklist b ON k.keyword = b.keyword
+      WHERE b.keyword IS NULL
+      GROUP BY k.keyword
+      ORDER BY total_count DESC
+      LIMIT 500
+    `);
+
+    // Get unique channels
+    const [channels] = await pool.execute(`
+      SELECT DISTINCT podcast_name, MAX(processed_at) as last_updated
+      FROM podcasts
+      GROUP BY podcast_name
+    `);
+
+    const today = new Date().toISOString().split('T')[0];
+
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <!-- Homepage -->
+  <url>
+    <loc>${SITE_URL}/</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+`;
+
+    // Add keyword/tag pages
+    for (const kw of keywords) {
+      const lastmod = kw.last_updated
+        ? new Date(kw.last_updated).toISOString().split('T')[0]
+        : today;
+
+      xml += `  <url>
+    <loc>${SITE_URL}/?q=${encodeURIComponent(kw.keyword)}</loc>
+    <lastmod>${lastmod}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+`;
+    }
+
+    // Add channel pages
+    for (const channel of channels) {
+      const lastmod = channel.last_updated
+        ? new Date(channel.last_updated).toISOString().split('T')[0]
+        : today;
+      const channelSlug = encodeURIComponent(channel.podcast_name);
+
+      xml += `  <url>
+    <loc>${SITE_URL}/?channel=${channelSlug}</loc>
+    <lastmod>${lastmod}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+`;
+    }
+
+    xml += `</urlset>`;
+
+    res.type('application/xml');
+    res.send(xml);
+
+  } catch (error) {
+    console.error('Sitemap error:', error);
+    res.status(500).send('Error generating sitemap');
+  }
+});
+
+// ============================================
 // CHANNEL MANAGEMENT ENDPOINTS
 // ============================================
 
