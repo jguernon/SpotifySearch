@@ -1849,7 +1849,7 @@ app.get('/api/search', async (req, res) => {
       params.push(language);
     }
 
-    sqlQuery += ` ORDER BY relevance_score DESC, upload_date DESC, processed_at DESC LIMIT 50`;
+    sqlQuery += ` ORDER BY relevance_score DESC, upload_date DESC, processed_at DESC LIMIT 200`;
 
     const [rows] = await pool.execute(sqlQuery, params);
 
