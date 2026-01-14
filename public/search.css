@@ -162,6 +162,40 @@
   }
 }
 
+/* Loading Overlay */
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  backdrop-filter: blur(4px);
+}
+
+.loading-overlay.visible {
+  display: flex;
+}
+
+.loading-content {
+  background: rgba(30, 30, 50, 0.95);
+  padding: 30px 50px;
+  border-radius: 12px;
+  border: 1px solid rgba(29, 185, 84, 0.3);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  color: #ffffff;
+  font-size: 1.4rem;
+  font-weight: 500;
+}
+
+.loading-content .bouncing-dots span {
+  font-size: 1.4rem;
+}
+
 /* Tags Section */
 .tags-section {
   margin-bottom: 40px;
@@ -367,6 +401,9 @@
 .episode-thumbnail-wrapper {
   flex-shrink: 0;
   width: 200px;
+  display: block;
+  text-decoration: none;
+  cursor: pointer;
 }
 
 .episode-thumbnail {

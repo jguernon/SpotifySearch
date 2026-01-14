@@ -6,8 +6,18 @@ const tagsCloud = document.getElementById('tagsCloud');
 const resultsSection = document.getElementById('resultsSection');
 const resultsList = document.getElementById('resultsList');
 const resultsCount = document.getElementById('resultsCount');
+const loadingOverlay = document.getElementById('loadingOverlay');
 
 const API_BASE = window.location.origin;
+
+// Loading overlay functions
+function showLoading() {
+  loadingOverlay.classList.add('visible');
+}
+
+function hideLoading() {
+  loadingOverlay.classList.remove('visible');
+}
 
 // Footer elements
 const totalEpisodes = document.getElementById('totalEpisodes');
@@ -81,6 +91,7 @@ function sortResults(sortType) {
 
   // Apply filter and sort, then render
   renderFilteredResults();
+  scrollToResults();
 }
 
 // Filter by channel
@@ -96,9 +107,10 @@ async function filterByChannel(channel) {
   if (channel === 'all') {
     currentChannelResults = [];
     renderFilteredResults();
+    scrollToResults();
   } else {
-    // Fetch results for this specific channel
-    resultsList.innerHTML = '<p class="loading-text">Loading...</p>';
+    // Show loading overlay
+    showLoading();
 
     try {
       const response = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(currentQuery)}&lang=${currentLanguage}&channel=${encodeURIComponent(channel)}`);
@@ -127,6 +139,9 @@ async function filterByChannel(channel) {
     } catch (error) {
       console.error('Filter error:', error);
       resultsList.innerHTML = '<p class="loading-text">Failed to load results</p>';
+    } finally {
+      hideLoading();
+      scrollToResults();
     }
   }
 }
@@ -312,8 +327,8 @@ function searchByTag(tag) {
 // Perform search
 async function performSearch(query) {
   setLoading(true);
+  showLoading();
   resultsSection.style.display = 'block';
-  resultsList.innerHTML = '<p class="loading-text">Searching...</p>';
   channelFilters.innerHTML = '';
 
   try {
@@ -361,6 +376,7 @@ async function performSearch(query) {
     console.error('Search error:', error);
   } finally {
     setLoading(false);
+    hideLoading();
     scrollToResults();
   }
 }
@@ -437,9 +453,9 @@ function createEpisodeCard(episode, searchQuery = null) {
   return `
     <div class="episode-card">
       <div class="episode-card-content">
-        <div class="episode-thumbnail-wrapper">
+        <a href="${episode.spotify_url}" target="_blank" rel="noopener" class="episode-thumbnail-wrapper">
           ${thumbnailHtml}
-        </div>
+        </a>
         <div class="episode-details">
           <div class="episode-card-header">
             <div class="episode-title-group">
