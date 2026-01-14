@@ -182,7 +182,7 @@ async function loadPopularTags() {
       return;
     }
 
-    tagsCloud.innerHTML = keywords.map(keyword => {
+    const tagsHtml = keywords.map(keyword => {
       return `
         <a href="#" class="tag" onclick="searchByTag('${escapeHtml(keyword.keyword)}'); return false;">
           ${escapeHtml(keyword.keyword)}
@@ -190,9 +190,66 @@ async function loadPopularTags() {
       `;
     }).join('');
 
+    // Add "+" button to show all keywords
+    const showAllBtn = `<a href="#" class="tag tag-show-all" onclick="showAllKeywords(); return false;">+</a>`;
+
+    tagsCloud.innerHTML = tagsHtml + showAllBtn;
+
   } catch (error) {
     tagsCloud.innerHTML = '<p class="loading-text">Failed to load topics</p>';
     console.error('Failed to load tags:', error);
+  }
+}
+
+// Store all keywords for the modal
+let allKeywordsCache = null;
+
+async function showAllKeywords() {
+  // Create or get modal
+  let modal = document.getElementById('allKeywordsModal');
+  if (!modal) {
+    modal = document.createElement('dialog');
+    modal.id = 'allKeywordsModal';
+    modal.className = 'keywords-modal';
+    modal.innerHTML = `
+      <div class="keywords-modal-content">
+        <div class="keywords-modal-header">
+          <h2>${currentLanguage === 'fr' ? 'Tous les sujets' : 'All Topics'}</h2>
+          <button class="modal-close" onclick="document.getElementById('allKeywordsModal').close()">&times;</button>
+        </div>
+        <div class="keywords-modal-body" id="allKeywordsList">
+          <p class="loading-text">Loading...</p>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+  }
+
+  modal.showModal();
+
+  // Load all keywords if not cached
+  const keywordsList = document.getElementById('allKeywordsList');
+
+  try {
+    const response = await fetch(`${API_BASE}/api/keywords?limit=500&lang=${currentLanguage}`);
+    const keywords = await response.json();
+
+    if (keywords.length === 0) {
+      keywordsList.innerHTML = '<p class="empty-state">No keywords available</p>';
+      return;
+    }
+
+    keywordsList.innerHTML = keywords.map(keyword => {
+      return `
+        <a href="#" class="tag" onclick="searchByTag('${escapeHtml(keyword.keyword)}'); document.getElementById('allKeywordsModal').close(); return false;">
+          ${escapeHtml(keyword.keyword)}
+        </a>
+      `;
+    }).join('');
+
+  } catch (error) {
+    keywordsList.innerHTML = '<p class="loading-text">Failed to load keywords</p>';
+    console.error('Failed to load all keywords:', error);
   }
 }
 
