@@ -16,7 +16,8 @@ const totalEpisodes = document.getElementById('totalEpisodes');
 const sortRelevanceBtn = document.getElementById('sortRelevance');
 const sortNewestBtn = document.getElementById('sortNewest');
 const channelFilters = document.getElementById('channelFilters');
-let currentResults = [];
+let currentResults = [];        // Results for "All" (top 50 global)
+let currentChannelResults = []; // Results for selected channel
 let currentQuery = '';
 let currentSort = 'relevance';
 let currentChannelFilter = 'all';
@@ -79,6 +80,7 @@ async function filterByChannel(channel) {
 
   // If "All" selected, use cached results, otherwise fetch from API with channel filter
   if (channel === 'all') {
+    currentChannelResults = [];
     renderFilteredResults();
   } else {
     // Fetch results for this specific channel
@@ -89,6 +91,9 @@ async function filterByChannel(channel) {
       const data = await response.json();
 
       const results = Array.isArray(data) ? data : data.results;
+      // Store channel results for sorting
+      currentChannelResults = results;
+
       // Find channel info by rawName (which is what we filter by)
       const channelInfo = allSearchChannels.find(c => (c.rawName || c.name) === channel);
       const totalForChannel = channelInfo ? channelInfo.count : results.length;
@@ -103,16 +108,8 @@ async function filterByChannel(channel) {
       // Update count
       resultsCount.textContent = `${results.length} of ${totalForChannel} result${totalForChannel !== 1 ? 's' : ''} in ${displayName}`;
 
-      if (results.length === 0) {
-        resultsList.innerHTML = `
-          <div class="no-results">
-            <h3>No results in this channel</h3>
-            <p>Try selecting "All" or a different channel</p>
-          </div>
-        `;
-      } else {
-        resultsList.innerHTML = results.map(episode => createEpisodeCard(episode, currentQuery)).join('');
-      }
+      // Render with current sort
+      renderFilteredResults();
     } catch (error) {
       console.error('Filter error:', error);
       resultsList.innerHTML = '<p class="loading-text">Failed to load results</p>';
@@ -122,10 +119,10 @@ async function filterByChannel(channel) {
 
 // Render results with current filter and sort
 function renderFilteredResults() {
-  // Filter by channel
+  // Use channel-specific results if a channel is selected, otherwise use global results
   let filteredResults = currentChannelFilter === 'all'
     ? [...currentResults]
-    : currentResults.filter(r => r.podcast_name === currentChannelFilter);
+    : [...currentChannelResults];
 
   // Sort the results
   if (currentSort === 'relevance') {
@@ -138,14 +135,16 @@ function renderFilteredResults() {
     });
   }
 
-  // Update count
-  const totalCount = currentResults.length;
-  const filteredCount = filteredResults.length;
+  // Update count display
   if (currentChannelFilter === 'all') {
-    resultsCount.textContent = `${totalCount} result${totalCount !== 1 ? 's' : ''}`;
-  } else {
-    resultsCount.textContent = `${filteredCount} of ${totalCount} result${totalCount !== 1 ? 's' : ''}`;
+    const displayedCount = filteredResults.length;
+    if (displayedCount < totalSearchResults) {
+      resultsCount.textContent = `${displayedCount} of ${totalSearchResults} results`;
+    } else {
+      resultsCount.textContent = `${displayedCount} result${displayedCount !== 1 ? 's' : ''}`;
+    }
   }
+  // For channel filter, count is already set in filterByChannel
 
   // Render results
   if (filteredResults.length === 0) {
