@@ -838,11 +838,31 @@
 /* Responsive */
 @media (max-width: 768px) {
   .search-input-wrapper {
-    flex-direction: column;
+    flex-wrap: wrap;
   }
 
-  .search-input-wrapper button {
+  .search-input-wrapper input {
     width: 100%;
+    flex: none;
+  }
+
+  .search-input-wrapper button, .search-input-wrapper a {
+    flex: none;
+  }
+
+  #searchBtn {
+    width: 73%;
+    padding: 16px 20px;
+  }
+
+  .search-input-wrapper a {
+    width: 25%;
+  }
+
+  #clearBtn {
+    width: 100%;
+    padding: 16px 10px !important;
+    box-sizing: border-box;
   }
 
   .results-header {
