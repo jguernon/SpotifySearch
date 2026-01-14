@@ -1134,11 +1134,18 @@ app.post('/api/refresh-channel-count', async (req, res) => {
 // Process missing videos for a channel
 app.post('/api/process-missing', async (req, res) => {
   try {
-    const { channelName, channelUrl, language = 'en' } = req.body;
+    const { channelName, channelUrl } = req.body;
 
     if (!channelUrl) {
       return res.status(400).json({ error: 'Channel URL is required' });
     }
+
+    // Get channel language from DB
+    const [channelInfo] = await pool.execute(
+      'SELECT language FROM channels WHERE channel_name = ?',
+      [channelName]
+    );
+    const language = channelInfo[0]?.language || 'en';
 
     // Get already processed video IDs for this channel
     const [processed] = await pool.execute(
@@ -1279,11 +1286,18 @@ async function processMissingVideosAsync(jobId, channelUrl, processedIds, langua
 // Retry skipped videos for a channel
 app.post('/api/retry-skipped', async (req, res) => {
   try {
-    const { channelName, channelUrl, language = 'en' } = req.body;
+    const { channelName, channelUrl } = req.body;
 
     if (!channelUrl || !channelName) {
       return res.status(400).json({ error: 'Channel name and URL are required' });
     }
+
+    // Get channel language from DB
+    const [channelInfo] = await pool.execute(
+      'SELECT language FROM channels WHERE channel_name = ?',
+      [channelName]
+    );
+    const language = channelInfo[0]?.language || 'en';
 
     // Get skipped videos for this channel
     const [skippedVideos] = await pool.execute(
@@ -1301,7 +1315,7 @@ app.post('/api/retry-skipped', async (req, res) => {
       [channelName]
     );
 
-    console.log(`[Retry-Skipped] Cleared ${skippedVideos.length} skipped videos for ${channelName}`);
+    console.log(`[Retry-Skipped] Cleared ${skippedVideos.length} skipped videos for ${channelName}, language: ${language}`);
 
     // Start background job
     const jobId = Date.now().toString(36) + Math.random().toString(36).substr(2);
