@@ -93,13 +93,29 @@ function addLog(type, message, details = null) {
 // yt-dlp configuration
 // Set YT_DLP_PATH for custom binary path (e.g., './yt-dlp' for standalone binary)
 // Set YT_DLP_COOKIES_FILE for production (e.g., './cookies.txt')
+// Set YT_DLP_COOKIES_BASE64 for Railway (base64 encoded cookies.txt content)
 // Set YT_DLP_BROWSER for local dev (e.g., 'chrome', 'firefox')
 const YT_DLP_PATH = process.env.YT_DLP_PATH || 'yt-dlp';
 const YT_DLP_COOKIES_FILE = process.env.YT_DLP_COOKIES_FILE;
+const YT_DLP_COOKIES_BASE64 = process.env.YT_DLP_COOKIES_BASE64;
 const YT_DLP_BROWSER = process.env.YT_DLP_BROWSER;
+
+// If base64 cookies provided, decode and write to temp file
+let cookiesFilePath = YT_DLP_COOKIES_FILE;
+if (YT_DLP_COOKIES_BASE64 && !YT_DLP_COOKIES_FILE) {
+  try {
+    const cookiesContent = Buffer.from(YT_DLP_COOKIES_BASE64, 'base64').toString('utf-8');
+    cookiesFilePath = path.join(TEMP_DIR, 'cookies.txt');
+    fs.writeFileSync(cookiesFilePath, cookiesContent);
+    console.log('[yt-dlp] Cookies loaded from YT_DLP_COOKIES_BASE64');
+  } catch (e) {
+    console.error('[yt-dlp] Failed to decode cookies from base64:', e.message);
+  }
+}
+
 let YT_DLP_OPTS = '';
-if (YT_DLP_COOKIES_FILE) {
-  YT_DLP_OPTS = `--cookies "${YT_DLP_COOKIES_FILE}"`;
+if (cookiesFilePath) {
+  YT_DLP_OPTS = `--cookies "${cookiesFilePath}"`;
 } else if (YT_DLP_BROWSER) {
   YT_DLP_OPTS = `--cookies-from-browser ${YT_DLP_BROWSER}`;
 }
