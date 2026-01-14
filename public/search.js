@@ -43,16 +43,30 @@ function setLanguage(lang) {
     btn.classList.toggle('active', btn.dataset.lang === lang);
   });
 
+  // Reset all state
+  currentResults = [];
+  currentChannelResults = [];
+  currentQuery = '';
+  currentSort = 'relevance';
+  currentChannelFilter = 'all';
+  allSearchChannels = [];
+  totalSearchResults = 0;
+
+  // Clear search input and results
+  searchInput.value = '';
+  resultsSection.style.display = 'none';
+  resultsList.innerHTML = '';
+  channelFilters.innerHTML = '';
+
+  // Reset sort buttons
+  sortRelevanceBtn.classList.add('active');
+  sortNewestBtn.classList.remove('active');
+
   // Reload popular tags for the selected language
   loadPopularTags();
 
   // Reload indexed stats for the selected language
   loadIndexedStats();
-
-  // If there's a current search, re-run it with new language
-  if (currentQuery) {
-    performSearch(currentQuery);
-  }
 }
 
 // Sort results
