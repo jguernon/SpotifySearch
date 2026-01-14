@@ -6,6 +6,7 @@ ftp_credentials.txt
 db_credentials.txt
 api_credentials.txt
 cookies.txt
+cookies_youtube.txt
 .env
 .env.local
 
