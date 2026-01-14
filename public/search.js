@@ -89,17 +89,19 @@ async function filterByChannel(channel) {
       const data = await response.json();
 
       const results = Array.isArray(data) ? data : data.results;
-      const channelInfo = allSearchChannels.find(c => c.name === channel);
+      // Find channel info by rawName (which is what we filter by)
+      const channelInfo = allSearchChannels.find(c => (c.rawName || c.name) === channel);
       const totalForChannel = channelInfo ? channelInfo.count : results.length;
+      const displayName = channelInfo ? channelInfo.name : channel;
 
       // Update the channel button label to show displayed/total
       const activeBtn = document.querySelector('.channel-filter-btn.active');
       if (activeBtn && results.length < totalForChannel) {
-        activeBtn.textContent = `${escapeHtml(channel)} (${results.length}/${totalForChannel})`;
+        activeBtn.textContent = `${displayName} (${results.length}/${totalForChannel})`;
       }
 
       // Update count
-      resultsCount.textContent = `${results.length} of ${totalForChannel} result${totalForChannel !== 1 ? 's' : ''} in ${channel}`;
+      resultsCount.textContent = `${results.length} of ${totalForChannel} result${totalForChannel !== 1 ? 's' : ''} in ${displayName}`;
 
       if (results.length === 0) {
         resultsList.innerHTML = `
@@ -164,11 +166,11 @@ let allSearchChannels = [];
 let totalSearchResults = 0;
 
 function buildChannelFilters(channels, totalResults, displayedCount = 50) {
-  // channels is now an array of {name, count} from the API
+  // channels is now an array of {name, rawName, count} from the API
   allSearchChannels = channels;
   totalSearchResults = totalResults;
 
-  // Sort channels alphabetically
+  // Sort channels alphabetically by display name
   const sortedChannels = [...channels].sort((a, b) => a.name.localeCompare(b.name));
 
   // Build buttons: "All" first (showing displayed/total), then channels
@@ -176,8 +178,10 @@ function buildChannelFilters(channels, totalResults, displayedCount = 50) {
   let html = `<button class="channel-filter-btn active" data-channel="all" onclick="filterByChannel('all')">${allLabel}</button>`;
 
   sortedChannels.forEach(channel => {
-    const escapedChannel = escapeHtml(channel.name).replace(/'/g, "\\'");
-    html += `<button class="channel-filter-btn" data-channel="${escapeHtml(channel.name)}" onclick="filterByChannel('${escapedChannel}')">${escapeHtml(channel.name)} (${channel.count})</button>`;
+    // Use rawName for filtering (matches DB), name for display
+    const rawName = channel.rawName || channel.name;
+    const escapedRawName = escapeHtml(rawName).replace(/'/g, "\\'");
+    html += `<button class="channel-filter-btn" data-channel="${escapeHtml(rawName)}" onclick="filterByChannel('${escapedRawName}')">${escapeHtml(channel.name)} (${channel.count})</button>`;
   });
 
   channelFilters.innerHTML = html;

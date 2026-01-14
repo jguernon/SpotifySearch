@@ -1846,8 +1846,10 @@ app.get('/api/search', async (req, res) => {
     const [channelRows] = await pool.execute(channelsQuery, channelsParams);
 
     // Build the channels list with counts
+    // Keep both raw name (for filtering) and decoded name (for display)
     const channels = channelRows.map(row => ({
       name: decodeHtmlEntities(row.podcast_name),
+      rawName: row.podcast_name,
       count: row.result_count
     }));
 
