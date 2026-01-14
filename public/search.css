@@ -374,24 +374,28 @@
 
 .episode-card-header {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  flex-direction: column;
   margin-bottom: 8px;
-  gap: 10px;
+  gap: 4px;
 }
 
 .episode-card h3 {
   color: #ffffff;
   font-size: 1.1rem;
   margin: 0;
-  flex: 1;
+}
+
+.channel-name {
+  color: #888;
+  font-size: 0.9rem;
+  margin: 0;
 }
 
 .episode-meta {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-shrink: 0;
+  margin-top: 4px;
 }
 
 .upload-date {

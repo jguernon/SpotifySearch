@@ -311,6 +311,7 @@ function createEpisodeCard(episode, searchQuery = null) {
         <div class="episode-details">
           <div class="episode-card-header">
             <h3>${escapeHtml(title)}</h3>
+            ${episode.podcast_name ? `<p class="channel-name">${escapeHtml(episode.podcast_name)}</p>` : ''}
             <div class="episode-meta">
               ${uploadDateStr ? `<span class="upload-date">${uploadDateStr}</span>` : ''}
               ${episode.relevance_score ? `<span class="relevance-badge">${Math.round(episode.relevance_score)}% match</span>` : ''}

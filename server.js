@@ -2198,19 +2198,19 @@ async function runCronJob() {
 
           for (const video of videosToProcess) {
             try {
-              addLog('process', `Processing: ${video.title}`, { channel: channel.channel_name });
+              addLog('process', `Processing: ${video.title}`, { channel: channel.channel_name, url: video.url });
               const result = await processVideo(video.url, video.id, false, 'en');
 
               if (result.skipped) {
                 results.videosSkipped++;
-                addLog('process', `Skipped: ${video.title}`, { reason: result.reason });
+                addLog('process', `Skipped: ${video.title}`, { reason: result.reason, url: video.url });
               } else {
                 results.videosProcessed++;
-                addLog('process', `Processed: ${video.title}`, { id: result.id });
+                addLog('process', `Processed: ${video.title}`, { id: result.id, url: video.url });
               }
             } catch (error) {
               results.videosFailed++;
-              addLog('error', `Failed to process: ${video.title}`, { error: error.message });
+              addLog('error', `Failed to process: ${video.title}`, { error: error.message, url: video.url });
             }
 
             // Rate limiting
