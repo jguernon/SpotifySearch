@@ -2163,9 +2163,9 @@ app.get('/api/cron/process-new', async (req, res) => {
 // Background cron job function
 async function runCronJob() {
   try {
-    // Get all channels
+    // Get all channels with their language setting
     const [channels] = await pool.execute(`
-      SELECT DISTINCT channel_name, channel_url
+      SELECT DISTINCT channel_name, channel_url, language
       FROM channels
       WHERE channel_url IS NOT NULL AND channel_url != ''
     `);
@@ -2220,8 +2220,9 @@ async function runCronJob() {
 
           for (const video of videosToProcess) {
             try {
-              addLog('process', `Processing: ${video.title}`, { channel: channel.channel_name, url: video.url });
-              const result = await processVideo(video.url, video.id, false, 'en');
+              const channelLang = channel.language || 'en';
+              addLog('process', `Processing: ${video.title}`, { channel: channel.channel_name, url: video.url, language: channelLang });
+              const result = await processVideo(video.url, video.id, false, channelLang);
 
               if (result.skipped) {
                 results.videosSkipped++;
@@ -2235,8 +2236,8 @@ async function runCronJob() {
               addLog('error', `Failed to process: ${video.title}`, { error: error.message, url: video.url });
             }
 
-            // Rate limiting - 5 seconds between videos to avoid YouTube 429 errors
-            await new Promise(r => setTimeout(r, 5000));
+            // Rate limiting - 10 seconds between videos to avoid YouTube 429 errors
+            await new Promise(r => setTimeout(r, 10000));
           }
         }
 
