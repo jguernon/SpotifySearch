@@ -1815,6 +1815,7 @@ app.get('/api/search', async (req, res) => {
   try {
     const query = req.query.q;
     const language = req.query.lang || null; // Filter by language if provided
+    const channelFilter = req.query.channel || null; // Filter by specific channel
 
     if (!query || query.length < 2) {
       return res.status(400).json({ error: 'Search query must be at least 2 characters' });
@@ -1874,6 +1875,11 @@ app.get('/api/search', async (req, res) => {
     if (language) {
       sqlQuery += ` AND language = ?`;
       params.push(language);
+    }
+
+    if (channelFilter) {
+      sqlQuery += ` AND podcast_name = ?`;
+      params.push(channelFilter);
     }
 
     sqlQuery += ` ORDER BY relevance_score DESC, upload_date DESC, processed_at DESC LIMIT 50`;

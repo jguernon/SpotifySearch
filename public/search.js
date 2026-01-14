@@ -69,7 +69,7 @@ function sortResults(sortType) {
 }
 
 // Filter by channel
-function filterByChannel(channel) {
+async function filterByChannel(channel) {
   currentChannelFilter = channel;
 
   // Update button states
@@ -77,8 +77,39 @@ function filterByChannel(channel) {
     btn.classList.toggle('active', btn.dataset.channel === channel);
   });
 
-  // Apply filter and sort, then render
-  renderFilteredResults();
+  // If "All" selected, use cached results, otherwise fetch from API with channel filter
+  if (channel === 'all') {
+    renderFilteredResults();
+  } else {
+    // Fetch results for this specific channel
+    resultsList.innerHTML = '<p class="loading-text">Loading...</p>';
+
+    try {
+      const response = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(currentQuery)}&lang=${currentLanguage}&channel=${encodeURIComponent(channel)}`);
+      const data = await response.json();
+
+      const results = Array.isArray(data) ? data : data.results;
+      const channelInfo = allSearchChannels.find(c => c.name === channel);
+      const totalForChannel = channelInfo ? channelInfo.count : results.length;
+
+      // Update count
+      resultsCount.textContent = `${results.length} of ${totalForChannel} result${totalForChannel !== 1 ? 's' : ''} in ${channel}`;
+
+      if (results.length === 0) {
+        resultsList.innerHTML = `
+          <div class="no-results">
+            <h3>No results in this channel</h3>
+            <p>Try selecting "All" or a different channel</p>
+          </div>
+        `;
+      } else {
+        resultsList.innerHTML = results.map(episode => createEpisodeCard(episode, currentQuery)).join('');
+      }
+    } catch (error) {
+      console.error('Filter error:', error);
+      resultsList.innerHTML = '<p class="loading-text">Failed to load results</p>';
+    }
+  }
 }
 
 // Render results with current filter and sort
