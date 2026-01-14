@@ -2229,8 +2229,8 @@ async function runCronJob() {
               addLog('error', `Failed to process: ${video.title}`, { error: error.message, url: video.url });
             }
 
-            // Rate limiting
-            await new Promise(r => setTimeout(r, 2000));
+            // Rate limiting - 5 seconds between videos to avoid YouTube 429 errors
+            await new Promise(r => setTimeout(r, 5000));
           }
         }
 
