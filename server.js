@@ -1435,7 +1435,13 @@ app.get('/api/ai-status/:jobId', (req, res) => {
   const job = aiJobs.get(req.params.jobId);
 
   if (!job) {
-    return res.status(404).json({ error: 'Job not found' });
+    // Job not found - likely server restarted, return completed status to stop polling
+    return res.json({
+      status: 'completed',
+      error: 'Job expired (server restarted)',
+      total: 0,
+      processed: 0
+    });
   }
 
   res.json(job);
