@@ -374,9 +374,17 @@
 
 .episode-card-header {
   display: flex;
-  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-start;
   margin-bottom: 8px;
-  gap: 4px;
+  gap: 10px;
+}
+
+.episode-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
 }
 
 .episode-card h3 {
@@ -395,7 +403,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 4px;
+  flex-shrink: 0;
 }
 
 .upload-date {
