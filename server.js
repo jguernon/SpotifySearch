@@ -2292,32 +2292,83 @@ async function runCronJob() {
 
 // Helper function to process AI for new videos only
 async function processAiForNewVideos() {
+  // Get blacklisted keywords
+  const [blacklistRows] = await pool.execute('SELECT keyword FROM keyword_blacklist');
+  const blacklist = new Set(blacklistRows.map(r => r.keyword.toLowerCase()));
+
   const [videos] = await pool.execute(`
-    SELECT id, episode_title, transcript, summary
+    SELECT id, episode_title, podcast_name, transcript, summary, language
     FROM podcasts
     WHERE (keywords IS NULL OR keywords = '')
     AND transcript IS NOT NULL AND transcript != ''
     LIMIT 50
   `);
 
+  if (videos.length === 0) {
+    addLog('ai', 'No new videos to process for keywords');
+    return;
+  }
+
+  addLog('ai', `Processing ${videos.length} videos for AI keywords`);
+
   for (const video of videos) {
     try {
-      const keywords = await extractKeywordsWithAI(video.transcript, video.summary);
+      const videoLang = video.language || 'en';
 
-      if (keywords && keywords.length > 0) {
+      // Extract keywords using Gemini
+      const textToAnalyze = `Title: ${video.episode_title}\nChannel: ${video.podcast_name}\nSummary: ${video.summary || ''}\n\nTranscript excerpt: ${(video.transcript || '').substring(0, 10000)}`;
+
+      const langInstructions = {
+        'en': 'Extract keywords in English.',
+        'fr': 'Extrais les mots-clés en français.'
+      };
+      const langInstruction = langInstructions[videoLang] || 'Extract keywords in the same language as the content.';
+
+      const prompt = `Extract 5-10 main keywords/topics from this video content. Return ONLY a JSON array of lowercase keywords, no explanations. Focus on main subjects, people mentioned, concepts discussed.
+
+IMPORTANT: ${langInstruction}
+
+Example output: ["artificial intelligence", "elon musk", "space exploration", "neural networks"]
+
+Content:
+${textToAnalyze}`;
+
+      const result = await model.generateContent(prompt);
+      const text = result.response.text();
+
+      let keywords = [];
+      try {
+        const jsonMatch = text.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          keywords = JSON.parse(jsonMatch[0]);
+        }
+      } catch (e) {
+        keywords = text.split(',').map(k => k.trim().toLowerCase().replace(/["\[\]]/g, '')).filter(k => k.length > 2);
+      }
+
+      // Clean, filter blacklisted, and limit keywords
+      keywords = keywords
+        .map(k => k.toLowerCase().trim())
+        .filter(k => k.length > 2 && k.length < 50)
+        .filter(k => !blacklist.has(k))
+        .slice(0, 10);
+
+      if (keywords.length > 0) {
         // Update video with keywords
         await pool.execute(
           'UPDATE podcasts SET keywords = ?, ai_processed_at = NOW() WHERE id = ?',
           [keywords.join(','), video.id]
         );
 
-        // Insert into keywords table
+        // Insert into keywords table with language
         for (const keyword of keywords) {
           await pool.execute(
-            'INSERT IGNORE INTO keywords (keyword, video_id) VALUES (?, ?)',
-            [keyword.toLowerCase().trim(), video.id]
+            'INSERT IGNORE INTO keywords (keyword, video_id, language) VALUES (?, ?, ?)',
+            [keyword.toLowerCase().trim(), video.id, videoLang]
           );
         }
+
+        addLog('ai', `Processed: ${video.episode_title} - ${keywords.length} keywords`);
       }
     } catch (error) {
       addLog('error', `AI failed for video ${video.id}`, { error: error.message });
