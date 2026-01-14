@@ -122,23 +122,22 @@ function renderFilteredResults() {
 }
 
 // Build channel filter buttons from results
-function buildChannelFilters(results) {
-  // Get unique channels with counts
-  const channelCounts = {};
-  results.forEach(r => {
-    const channel = r.podcast_name || 'Unknown';
-    channelCounts[channel] = (channelCounts[channel] || 0) + 1;
-  });
+// Store all channels from search for filtering
+let allSearchChannels = [];
+
+function buildChannelFilters(channels, totalResults) {
+  // channels is now an array of {name, count} from the API
+  allSearchChannels = channels;
 
   // Sort channels alphabetically
-  const channels = Object.keys(channelCounts).sort((a, b) => a.localeCompare(b));
+  const sortedChannels = [...channels].sort((a, b) => a.name.localeCompare(b.name));
 
   // Build buttons: "All" first, then channels
-  let html = `<button class="channel-filter-btn active" data-channel="all" onclick="filterByChannel('all')">All (${results.length})</button>`;
+  let html = `<button class="channel-filter-btn active" data-channel="all" onclick="filterByChannel('all')">All (${totalResults})</button>`;
 
-  channels.forEach(channel => {
-    const escapedChannel = escapeHtml(channel).replace(/'/g, "\\'");
-    html += `<button class="channel-filter-btn" data-channel="${escapeHtml(channel)}" onclick="filterByChannel('${escapedChannel}')">${escapeHtml(channel)} (${channelCounts[channel]})</button>`;
+  sortedChannels.forEach(channel => {
+    const escapedChannel = escapeHtml(channel.name).replace(/'/g, "\\'");
+    html += `<button class="channel-filter-btn" data-channel="${escapeHtml(channel.name)}" onclick="filterByChannel('${escapedChannel}')">${escapeHtml(channel.name)} (${channel.count})</button>`;
   });
 
   channelFilters.innerHTML = html;
@@ -262,7 +261,12 @@ async function performSearch(query) {
 
   try {
     const response = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(query)}&lang=${currentLanguage}`);
-    const results = await response.json();
+    const data = await response.json();
+
+    // Handle both old format (array) and new format ({results, channels, totalResults})
+    const results = Array.isArray(data) ? data : data.results;
+    const channels = Array.isArray(data) ? null : data.channels;
+    const totalResults = Array.isArray(data) ? results.length : data.totalResults;
 
     // Store results for sorting
     currentResults = results;
@@ -284,8 +288,13 @@ async function performSearch(query) {
       resultsCount.textContent = '0 results';
       channelFilters.innerHTML = '';
     } else {
-      resultsCount.textContent = `${results.length} result${results.length !== 1 ? 's' : ''}`;
-      buildChannelFilters(results);
+      resultsCount.textContent = `${results.length} of ${totalResults} result${totalResults !== 1 ? 's' : ''}`;
+      if (channels) {
+        buildChannelFilters(channels, totalResults);
+      } else {
+        // Fallback for old API format
+        buildChannelFiltersFromResults(results);
+      }
       resultsList.innerHTML = results.map(episode => createEpisodeCard(episode, query)).join('');
     }
 
@@ -297,6 +306,22 @@ async function performSearch(query) {
     setLoading(false);
     scrollToResults();
   }
+}
+
+// Fallback function to build filters from results (old API format)
+function buildChannelFiltersFromResults(results) {
+  const channelCounts = {};
+  results.forEach(r => {
+    const channel = r.podcast_name || 'Unknown';
+    channelCounts[channel] = (channelCounts[channel] || 0) + 1;
+  });
+
+  const channels = Object.keys(channelCounts).map(name => ({
+    name,
+    count: channelCounts[name]
+  }));
+
+  buildChannelFilters(channels, results.length);
 }
 
 // Create episode card HTML

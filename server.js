@@ -1823,7 +1823,34 @@ app.get('/api/search', async (req, res) => {
     const searchTerms = query.toLowerCase().split(/\s+/).filter(t => t.length > 1);
     const searchPattern = `%${query}%`;
 
-    // Build query with optional language filter
+    // First, get all matching channels with their result counts (no limit)
+    let channelsQuery = `
+      SELECT podcast_name, COUNT(*) as result_count
+      FROM podcasts
+      WHERE
+        (LOWER(episode_title) LIKE ? OR
+        LOWER(keywords) LIKE ? OR
+        LOWER(summary) LIKE ? OR
+        LOWER(transcript) LIKE ?)
+    `;
+    let channelsParams = [searchPattern, searchPattern, searchPattern, searchPattern];
+
+    if (language) {
+      channelsQuery += ` AND language = ?`;
+      channelsParams.push(language);
+    }
+
+    channelsQuery += ` GROUP BY podcast_name ORDER BY result_count DESC`;
+
+    const [channelRows] = await pool.execute(channelsQuery, channelsParams);
+
+    // Build the channels list with counts
+    const channels = channelRows.map(row => ({
+      name: decodeHtmlEntities(row.podcast_name),
+      count: row.result_count
+    }));
+
+    // Now get the top 50 results
     let sqlQuery = `
       SELECT
         id, spotify_url, podcast_name, episode_title, summary, keywords, processed_at,
@@ -1849,7 +1876,7 @@ app.get('/api/search', async (req, res) => {
       params.push(language);
     }
 
-    sqlQuery += ` ORDER BY relevance_score DESC, upload_date DESC, processed_at DESC LIMIT 200`;
+    sqlQuery += ` ORDER BY relevance_score DESC, upload_date DESC, processed_at DESC LIMIT 50`;
 
     const [rows] = await pool.execute(sqlQuery, params);
 
@@ -1881,7 +1908,12 @@ app.get('/api/search', async (req, res) => {
       };
     });
 
-    res.json(results);
+    // Return results with channels list for filtering
+    res.json({
+      results,
+      channels,
+      totalResults: channelRows.reduce((sum, c) => sum + c.result_count, 0)
+    });
   } catch (error) {
     console.error('Search error:', error);
     res.status(500).json({ error: 'Search failed' });
