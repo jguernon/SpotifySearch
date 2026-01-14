@@ -72,7 +72,7 @@ function sortResults(sortType) {
 async function filterByChannel(channel) {
   currentChannelFilter = channel;
 
-  // Update button states
+  // Update button states and labels
   document.querySelectorAll('.channel-filter-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.channel === channel);
   });
@@ -91,6 +91,12 @@ async function filterByChannel(channel) {
       const results = Array.isArray(data) ? data : data.results;
       const channelInfo = allSearchChannels.find(c => c.name === channel);
       const totalForChannel = channelInfo ? channelInfo.count : results.length;
+
+      // Update the channel button label to show displayed/total
+      const activeBtn = document.querySelector('.channel-filter-btn.active');
+      if (activeBtn && results.length < totalForChannel) {
+        activeBtn.textContent = `${escapeHtml(channel)} (${results.length}/${totalForChannel})`;
+      }
 
       // Update count
       resultsCount.textContent = `${results.length} of ${totalForChannel} result${totalForChannel !== 1 ? 's' : ''} in ${channel}`;
@@ -155,16 +161,19 @@ function renderFilteredResults() {
 // Build channel filter buttons from results
 // Store all channels from search for filtering
 let allSearchChannels = [];
+let totalSearchResults = 0;
 
-function buildChannelFilters(channels, totalResults) {
+function buildChannelFilters(channels, totalResults, displayedCount = 50) {
   // channels is now an array of {name, count} from the API
   allSearchChannels = channels;
+  totalSearchResults = totalResults;
 
   // Sort channels alphabetically
   const sortedChannels = [...channels].sort((a, b) => a.name.localeCompare(b.name));
 
-  // Build buttons: "All" first, then channels
-  let html = `<button class="channel-filter-btn active" data-channel="all" onclick="filterByChannel('all')">All (${totalResults})</button>`;
+  // Build buttons: "All" first (showing displayed/total), then channels
+  const allLabel = displayedCount < totalResults ? `All (${displayedCount}/${totalResults})` : `All (${totalResults})`;
+  let html = `<button class="channel-filter-btn active" data-channel="all" onclick="filterByChannel('all')">${allLabel}</button>`;
 
   sortedChannels.forEach(channel => {
     const escapedChannel = escapeHtml(channel.name).replace(/'/g, "\\'");
@@ -321,7 +330,7 @@ async function performSearch(query) {
     } else {
       resultsCount.textContent = `${results.length} of ${totalResults} result${totalResults !== 1 ? 's' : ''}`;
       if (channels) {
-        buildChannelFilters(channels, totalResults);
+        buildChannelFilters(channels, totalResults, results.length);
       } else {
         // Fallback for old API format
         buildChannelFiltersFromResults(results);
